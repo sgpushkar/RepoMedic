@@ -15,20 +15,15 @@ export const authOptions: NextAuthOptions = {
   ],
   callbacks: {
     async redirect({ url, baseUrl }) {
-      const actualBase = process.env.NEXTAUTH_URL
-        ? process.env.NEXTAUTH_URL
-        : process.env.VERCEL_URL 
-          ? `https://${process.env.VERCEL_URL}` 
-          : baseUrl;
       if (url.startsWith("/")) {
-        return `${actualBase}${url}`;
+        return `${baseUrl}${url}`;
       }
       try {
-        if (new URL(url).origin === new URL(actualBase).origin) {
+        if (new URL(url).origin === new URL(baseUrl).origin) {
           return url;
         }
       } catch (e) {}
-      return actualBase;
+      return baseUrl;
     },
     async jwt({ token, account }: any) {
       if (account) {
