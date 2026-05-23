@@ -41,8 +41,14 @@ export const jobQueue = {
   },
   async update(id: string, patch: any) {
     await dbConnect();
-    const job = await Job.findByIdAndUpdate(id, { $set: patch }, { new: true });
-    return job;
+    if (patch.status === 'done' || patch.status === 'error') {
+      return await Job.findByIdAndUpdate(id, { $set: patch }, { new: true });
+    }
+    return await Job.findOneAndUpdate(
+      { _id: id, status: { $nin: ['done', 'error'] } },
+      { $set: patch },
+      { new: true }
+    );
   },
 };
 
@@ -626,8 +632,15 @@ export async function runPipeline(jobId: string, owner: string, repo: string, br
       organizerSuggestion, aiSummary: null, suggestions: [],
     })
 
-    await jobQueue.update(jobId, { status: 'done', progress: 100, step: 'Done', analysisId: saved._id });
-    console.log(`[Pipeline] Done in ${(duration/1000).toFixed(1)}s   id=${saved._id}`)
+    // Set analysisId AND status in one atomic operation — the frontend polls for analysisId
+    // to detect completion, so this must succeed before anything else can interrupt
+    await jobQueue.update(jobId, {
+      status: 'done',
+      progress: 100,
+      step: 'Done',
+      analysisId: saved._id,
+    });
+    console.log(`[Pipeline] Done in ${(duration/1000).toFixed(1)}s — id=${saved._id}`)
 
   } catch (e) {
     console.error('[Pipeline Error]', e.message)

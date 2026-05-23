@@ -14,6 +14,20 @@ export const authOptions: NextAuthOptions = {
     }),
   ],
   callbacks: {
+    async redirect({ url, baseUrl }) {
+      const actualBase = process.env.VERCEL_URL 
+        ? `https://${process.env.VERCEL_URL}` 
+        : baseUrl;
+      if (url.startsWith("/")) {
+        return `${actualBase}${url}`;
+      }
+      try {
+        if (new URL(url).origin === new URL(actualBase).origin) {
+          return url;
+        }
+      } catch (e) {}
+      return actualBase;
+    },
     async jwt({ token, account }: any) {
       if (account) {
         token.accessToken = account.access_token;

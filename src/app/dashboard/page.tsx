@@ -84,19 +84,33 @@ export default function Dashboard() {
   };
 
   const pollJob = async (jobId: string) => {
+    const startTime = Date.now();
+    const MAX_WAIT_MS = 3 * 60 * 1000; // 3 minutes
+
     const check = async () => {
+      // Stop polling if we've been waiting too long
+      if (Date.now() - startTime > MAX_WAIT_MS) {
+        toast.error("Analysis is taking too long. Check History for results.", { id: "analyze-toast" });
+        setAnalyzingRepo(null);
+        setJobProgress(null);
+        return;
+      }
+
       try {
         const res = await fetch(`/api/analyze/job/${jobId}`);
         const data = await res.json();
         if (data.success) {
           const job = data.data;
-          setJobProgress({ step: job.step, progress: job.progress });
-          
-          if (job.status === "done" && job.analysisId) {
+          setJobProgress({ step: job.step || "Processing...", progress: job.progress || 0 });
+
+          // Redirect as soon as analysisId is set — the analysis IS saved in the database
+          // even if the job status hasn't been updated to "done" yet (can happen on serverless)
+          if (job.analysisId) {
             toast.success("Analysis complete!", { id: "analyze-toast" });
             router.push(`/dashboard/analysis/${job.analysisId}`);
             return;
           }
+
           if (job.status === "error") {
             console.error("Job Error:", job.step);
             toast.error(`Analysis failed: ${job.step}`, { id: "analyze-toast" });
@@ -104,11 +118,13 @@ export default function Dashboard() {
             setJobProgress(null);
             return;
           }
+        } else {
+          console.error("Poll error:", data.error);
         }
       } catch (err) {
         console.error(err);
       }
-      setTimeout(check, 1000);
+      setTimeout(check, 2000);
     };
     check();
   };
