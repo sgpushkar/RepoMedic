@@ -3,13 +3,16 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { rimraf } from 'rimraf';
-import simpleGit from 'simple-git';
 import crypto from 'crypto';
 import { OpenAI } from 'openai';
 import { v4 as uuidv4 } from 'uuid';
 import { Analysis } from './models/Analysis';
 import { Job } from './models/Job';
 import dbConnect from './db';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+
+const execAsync = promisify(exec);
 
 export const jobQueue = {
   async create(userId: string, owner: string, repo: string, branch: string) {
@@ -59,17 +62,57 @@ const cloneService = {
   getPath(owner: string, repo: string) { return path.join(TEMP_DIR, `${owner}_${repo}_${Date.now()}`) },
 
   async clone(owner: string, repo: string, token: string, branch: string = 'main') {
-    const repoPath = this.getPath(owner, repo)
-    const cloneUrl = `https://${token}@github.com/${owner}/${repo}.git`
-    console.log(`[Clone] ${owner}/${repo}@${branch}`)
-    const git = simpleGit()
+    const uniqueId = `${owner}_${repo}_${Date.now()}`;
+    const archivePath = path.join(os.tmpdir(), `${uniqueId}.tar.gz`);
+    const extractDir = path.join(os.tmpdir(), uniqueId);
+    
+    fs.mkdirSync(extractDir, { recursive: true });
+
+    // GitHub Tarball URL
+    const url = `https://api.github.com/repos/${owner}/${repo}/tarball/${branch}`;
+    const maskedUrl = `https://api.github.com/repos/${owner}/${repo}/tarball/${branch}`;
+    console.log(`[Clone] Fetching tarball: ${maskedUrl}`);
+
     try {
-      await git.clone(cloneUrl, repoPath, ['--depth', '1', '--branch', branch, '--single-branch'])
-    } catch {
-      await git.clone(cloneUrl, repoPath, ['--depth', '1', '--single-branch'])
+      const response = await fetch(url, {
+        headers: {
+          Authorization: token ? `token ${token}` : '',
+          Accept: 'application/vnd.github+json',
+          'User-Agent': 'RepoMedic',
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`GitHub API responded with status ${response.status}: ${response.statusText}`);
+      }
+
+      const arrayBuffer = await response.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+      fs.writeFileSync(archivePath, buffer);
+
+      console.log(`[Clone] Saved to ${archivePath}. Extracting...`);
+
+      // Run native tar extraction
+      await execAsync(`tar -xzf "${archivePath}" -C "${extractDir}"`);
+      console.log(`[Clone] Extracted successfully.`);
+
+      // Find the single subdirectory inside extractDir
+      const subdirs = fs.readdirSync(extractDir);
+      if (subdirs.length === 0) {
+        throw new Error("Tarball extraction resulted in an empty directory");
+      }
+      
+      const repoPath = path.join(extractDir, subdirs[0]);
+      console.log(`[Clone] Target directory: ${repoPath}`);
+      
+      // Cleanup the archive file
+      try { fs.unlinkSync(archivePath); } catch {}
+
+      return repoPath;
+    } catch (err) {
+      console.error(`[Clone] Critical failure: ${err.message}`);
+      throw new Error(`Failed to download repository: ${err.message}`);
     }
-    console.log(`[Clone] Done`)
-    return repoPath
   },
 
   async cleanup(repoPath: string) {

@@ -11,11 +11,15 @@ export async function POST(req: Request) {
   const { owner, repo, branch = 'main' } = await req.json();
   if (!owner || !repo) return NextResponse.json({ success: false, error: 'owner and repo required' });
 
-  const job = await jobQueue.create((session as any).user.id, owner, repo, branch);
+  const userId = (session as any).user.id;
+  const token = (session as any).accessToken;
+  console.log(`[POST /api/analyze] Triggered for user=${userId}, repo=${owner}/${repo}, tokenPresent=${!!token}`);
+
+  const job = await jobQueue.create(userId, owner, repo, branch);
   
   after(async () => {
     try {
-      await runPipeline(job.id, owner, repo, branch, { _id: (session as any).user.id, accessToken: (session as any).accessToken });
+      await runPipeline(job.id, owner, repo, branch, { _id: userId, accessToken: token });
     } catch (err) {
       console.error("Pipeline background error:", err);
     }
