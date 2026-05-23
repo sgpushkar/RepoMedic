@@ -25,7 +25,11 @@ export const authOptions: NextAuthOptions = {
       } catch (e) {}
       return baseUrl;
     },
-    async jwt({ token, account }: any) {
+    async jwt({ token, account, user }: any) {
+      // On first sign-in, persist the MongoDB _id explicitly
+      if (user?.id) {
+        token.userId = user.id;
+      }
       if (account) {
         token.accessToken = account.access_token;
       }
@@ -58,11 +62,18 @@ export const authOptions: NextAuthOptions = {
     },
     async session({ session, token }: any) {
       if (session.user) {
-        session.user.id = token.sub;
-        await dbConnect();
-        const u = await User.findById(token.sub);
-        if (u) {
-          session.accessToken = u.accessToken;
+        // Prefer the explicitly-stored MongoDB _id over token.sub
+        const userId = token.userId || token.sub;
+        session.user.id = userId;
+        try {
+          await dbConnect();
+          const u = await User.findById(userId);
+          if (u) {
+            session.accessToken = u.accessToken;
+          }
+        } catch (e: any) {
+          // Don't crash the session if DB lookup fails
+          console.error('[Auth] session callback DB error:', e.message);
         }
       }
       return session;
