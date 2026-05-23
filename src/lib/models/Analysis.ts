@@ -8,6 +8,11 @@ const AnalysisSchema = new mongoose.Schema({
   branch:       { type: String, default: 'main' },
   analyzedAt:   { type: Date, default: Date.now },
   duration:     { type: Number, default: 0 },
+  // Job tracking (for serverless polling)
+  status:       { type: String, default: 'pending', enum: ['pending', 'running', 'done', 'error'] },
+  jobStep:      { type: String, default: 'Queued' },
+  jobProgress:  { type: Number, default: 0 },
+  jobError:     { type: String, default: null },
   stats: {
     totalFiles:      { type: Number, default: 0 },
     totalLines:      { type: Number, default: 0 },

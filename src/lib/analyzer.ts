@@ -1,24 +1,46 @@
 // @ts-nocheck
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 import { rimraf } from 'rimraf';
 import simpleGit from 'simple-git';
 import crypto from 'crypto';
 import { OpenAI } from 'openai';
 import { v4 as uuidv4 } from 'uuid';
 import { Analysis } from './models/Analysis';
-
-export const jobs = new Map();
-export const jobResultMap = new Map();
+import { Job } from './models/Job';
+import dbConnect from './db';
 
 export const jobQueue = {
-  create(userId: string, owner: string, repo: string, branch: string) {
-    const job = { id: uuidv4(), owner, repo, branch, userId, status: 'pending', progress: 0, step: 'Queued', createdAt: new Date() };
-    jobs.set(job.id, job);
+  async create(userId: string, owner: string, repo: string, branch: string) {
+    await dbConnect();
+    const jobId = uuidv4();
+    const job = await Job.create({
+      _id: jobId,
+      userId,
+      owner,
+      repo,
+      branch,
+      status: 'pending',
+      step: 'Queued',
+      progress: 0,
+    });
+    return { id: job._id, ...job.toObject() };
+  },
+  async get(id: string) {
+    await dbConnect();
+    const job = await Job.findById(id).lean();
+    if (!job) return null;
+    return {
+      id: String(job._id),
+      ...job,
+    };
+  },
+  async update(id: string, patch: any) {
+    await dbConnect();
+    const job = await Job.findByIdAndUpdate(id, { $set: patch }, { new: true });
     return job;
   },
-  get(id: string) { return jobs.get(id); },
-  update(id: string, patch: any) { const j = jobs.get(id); if (j) jobs.set(id, { ...j, ...patch }); },
 };
 
 // ── Language Colors ───────────────────────────────────────────
@@ -30,8 +52,8 @@ const LANG_COLORS: Record<string, string> = {
 }
 
 // ── Clone Service ─────────────────────────────────────────────
-const TEMP_DIR = path.resolve(__dirname, '../temp_repos')
-if (!fs.existsSync(TEMP_DIR)) fs.mkdirSync(TEMP_DIR, { recursive: true })
+const TEMP_DIR = path.join(os.tmpdir(), 'repomedic_temp_repos');
+if (!fs.existsSync(TEMP_DIR)) fs.mkdirSync(TEMP_DIR, { recursive: true });
 
 const cloneService = {
   getPath(owner: string, repo: string) { return path.join(TEMP_DIR, `${owner}_${repo}_${Date.now()}`) },
@@ -515,14 +537,12 @@ export async function runPipeline(jobId: string, owner: string, repo: string, br
       organizerSuggestion, aiSummary: null, suggestions: [],
     })
 
-    jobResultMap.set(jobId, String(saved._id))
-    step('Done', 100)
-    jobQueue.update(jobId, { status:'done', progress:100 })
+    await jobQueue.update(jobId, { status: 'done', progress: 100, step: 'Done', analysisId: saved._id });
     console.log(`[Pipeline] Done in ${(duration/1000).toFixed(1)}s — id=${saved._id}`)
 
   } catch (e) {
     console.error('[Pipeline Error]', e.message)
-    jobQueue.update(jobId, { status:'error', step: e.message || String(e) })
+    await jobQueue.update(jobId, { status: 'error', step: e.message || String(e), error: e.message || String(e) })
   } finally {
     if (repoPath) setTimeout(() => cloneService.cleanup(repoPath), 10000)
   }

@@ -59,5 +59,6 @@ export const authOptions: NextAuthOptions = {
   },
   session: {
     strategy: "jwt"
-  }
+  },
+  secret: process.env.NEXTAUTH_SECRET || "repomedic_default_secret_key_123",
 };
