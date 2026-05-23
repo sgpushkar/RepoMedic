@@ -5,6 +5,7 @@ import { LogOut } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import RepoCard from "@/components/RepoCard";
+import toast from "react-hot-toast";
 
 export default function Dashboard() {
   const { data: session, status } = useSession();
@@ -59,6 +60,7 @@ export default function Dashboard() {
 
   const handleAnalyze = async (repo: any) => {
     setAnalyzingRepo(repo.name);
+    toast.loading(`Starting analysis for ${repo.name}...`, { id: "analyze-toast" });
     try {
       const res = await fetch("/api/analyze", {
         method: "POST",
@@ -67,13 +69,16 @@ export default function Dashboard() {
       });
       const data = await res.json();
       if (data.success && data.data.jobId) {
+        toast.success("Analysis queued!", { id: "analyze-toast" });
         pollJob(data.data.jobId);
       } else {
         console.error("Analysis failed to start:", data.error);
+        toast.error(`Failed to start: ${data.error || "Unknown error"}`, { id: "analyze-toast" });
         setAnalyzingRepo(null);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
+      toast.error(`Error: ${err.message || "Unknown error"}`, { id: "analyze-toast" });
       setAnalyzingRepo(null);
     }
   };
@@ -88,11 +93,13 @@ export default function Dashboard() {
           setJobProgress({ step: job.step, progress: job.progress });
           
           if (job.status === "done" && job.analysisId) {
+            toast.success("Analysis complete!", { id: "analyze-toast" });
             router.push(`/dashboard/analysis/${job.analysisId}`);
             return;
           }
           if (job.status === "error") {
             console.error("Job Error:", job.step);
+            toast.error(`Analysis failed: ${job.step}`, { id: "analyze-toast" });
             setAnalyzingRepo(null);
             setJobProgress(null);
             return;

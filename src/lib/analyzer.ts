@@ -46,7 +46,7 @@ export const jobQueue = {
   },
 };
 
-// ── Language Colors ───────────────────────────────────────────
+// -- Language Colors -------------------------------------------
 const LANG_COLORS: Record<string, string> = {
   Python:'#3572A5', JavaScript:'#f1e05a', TypeScript:'#2b7489', HTML:'#e34c26',
   CSS:'#563d7c', Java:'#b07219', 'C++':'#f34b7d', C:'#555555', Rust:'#dea584',
@@ -54,86 +54,132 @@ const LANG_COLORS: Record<string, string> = {
   JSON:'#292929', YAML:'#cb171e', Kotlin:'#A97BFF', Swift:'#FA7343', Other:'#666677',
 }
 
-// ── Clone Service ─────────────────────────────────────────────
-const TEMP_DIR = path.join(os.tmpdir(), 'repomedic_temp_repos');
-if (!fs.existsSync(TEMP_DIR)) fs.mkdirSync(TEMP_DIR, { recursive: true });
-
+// -- Clone Service --------------------------------
 const cloneService = {
-  getPath(owner: string, repo: string) { return path.join(TEMP_DIR, `${owner}_${repo}_${Date.now()}`) },
-
   async clone(owner: string, repo: string, token: string, branch: string = 'main') {
     const uniqueId = `${owner}_${repo}_${Date.now()}`;
-    const archivePath = path.join(os.tmpdir(), `${uniqueId}.tar.gz`);
-    const extractDir = path.join(os.tmpdir(), uniqueId);
-    
-    fs.mkdirSync(extractDir, { recursive: true });
+    const repoPath = path.join(os.tmpdir(), uniqueId);
+    fs.mkdirSync(repoPath, { recursive: true });
 
-    // GitHub Tarball URL
-    const url = `https://api.github.com/repos/${owner}/${repo}/tarball/${branch}`;
-    const maskedUrl = `https://api.github.com/repos/${owner}/${repo}/tarball/${branch}`;
-    console.log(`[Clone] Fetching tarball: ${maskedUrl}`);
-
-    try {
-      const response = await fetch(url, {
-        headers: {
-          Authorization: token ? `token ${token}` : '',
-          Accept: 'application/vnd.github+json',
-          'User-Agent': 'RepoMedic',
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error(`GitHub API responded with status ${response.status}: ${response.statusText}`);
-      }
-
-      const arrayBuffer = await response.arrayBuffer();
-      const buffer = Buffer.from(arrayBuffer);
-      fs.writeFileSync(archivePath, buffer);
-
-      console.log(`[Clone] Saved to ${archivePath}. Extracting...`);
-
-      // Run native tar extraction
-      await execAsync(`tar -xzf "${archivePath}" -C "${extractDir}"`);
-      console.log(`[Clone] Extracted successfully.`);
-
-      // Find the single subdirectory inside extractDir
-      const subdirs = fs.readdirSync(extractDir);
-      if (subdirs.length === 0) {
-        throw new Error("Tarball extraction resulted in an empty directory");
-      }
-      
-      const repoPath = path.join(extractDir, subdirs[0]);
-      console.log(`[Clone] Target directory: ${repoPath}`);
-      
-      // Cleanup the archive file
-      try { fs.unlinkSync(archivePath); } catch {}
-
-      return repoPath;
-    } catch (err) {
-      console.error(`[Clone] Critical failure: ${err.message}`);
-      throw new Error(`Failed to download repository: ${err.message}`);
+    const treeUrl = `https://api.github.com/repos/${owner}/${repo}/git/trees/${branch}?recursive=1`;
+    console.log(`[Clone] Fetching repo tree: ${treeUrl}`);
+    const response = await fetch(treeUrl, {
+      headers: {
+        Authorization: token ? `token ${token}` : '',
+        Accept: 'application/vnd.github.v3+json',
+        'User-Agent': 'RepoMedic',
+      },
+    });
+    if (!response.ok) {
+      throw new Error(`Failed to fetch repository tree: ${response.status} ${response.statusText}`);
     }
+    const data = await response.json();
+    
+    // Create all directories from the tree (except skipped ones) to satisfy existsSync checks
+    for (const item of data.tree || []) {
+      if (item.type === 'tree') {
+        const dirPath = path.join(repoPath, item.path);
+        const parts = item.path.split('/');
+        if (parts.some((part: string) => SKIP_DIRS.has(part))) continue;
+        if (!fs.existsSync(dirPath)) {
+          fs.mkdirSync(dirPath, { recursive: true });
+        }
+      }
+    }
+
+    // Filter files we need to scan
+    const filesToFetch = (data.tree || []).filter((item: any) => {
+      if (item.type !== 'blob') return false;
+      const parts = item.path.split('/');
+      if (parts.some((part: string) => SKIP_DIRS.has(part))) return false;
+      if (parts.some((part: string) => part.startsWith('.') && part !== '.gitignore' && part !== '.github')) return false;
+
+      const ext = path.extname(item.path).toLowerCase();
+      const filename = path.basename(item.path);
+
+      const isCode = !!EXT_LANG[ext];
+      const isDep = filename === 'package.json' || filename === 'requirements.txt';
+      const isGitIgnore = filename === '.gitignore';
+      const isReadme = ['readme.md', 'readme.rst', 'readme.txt'].includes(filename.toLowerCase());
+
+      return isCode || isDep || isGitIgnore || isReadme;
+    });
+
+    console.log(`[Clone] Found ${filesToFetch.length} files to download after filtering.`);
+
+    // Concurrency control for downloading file content using Git Blobs API
+    const limit = 8; // 8 concurrent downloads
+    const queue = [...filesToFetch];
+    
+    const downloadWorker = async () => {
+      while (queue.length > 0) {
+        const file = queue.shift();
+        if (!file) continue;
+
+        const filePath = path.join(repoPath, file.path);
+        const dir = path.dirname(filePath);
+        if (!fs.existsSync(dir)) {
+          fs.mkdirSync(dir, { recursive: true });
+        }
+
+        // Use GitHub Git Blobs API (which accepts standard token authorization perfectly)
+        const blobUrl = `https://api.github.com/repos/${owner}/${repo}/git/blobs/${file.sha}`;
+        try {
+          const fileRes = await fetch(blobUrl, {
+            headers: {
+              Authorization: token ? `token ${token}` : '',
+              Accept: 'application/vnd.github.v3.raw',
+              'User-Agent': 'RepoMedic',
+            },
+          });
+
+          if (!fileRes.ok) {
+            console.warn(`[Clone] Failed to fetch blob for ${file.path}: ${fileRes.status}`);
+            continue;
+          }
+
+          const content = await fileRes.text();
+          fs.writeFileSync(filePath, content, 'utf-8');
+        } catch (err: any) {
+          console.warn(`[Clone] Error downloading ${file.path}: ${err.message}`);
+        }
+      }
+    };
+
+    // Run workers in parallel
+    const workers = Array(Math.min(limit, queue.length)).fill(null).map(downloadWorker);
+    await Promise.all(workers);
+
+    console.log(`[Clone] Repository materialized at ${repoPath}`);
+    return repoPath;
   },
 
   async cleanup(repoPath: string) {
-    try { if (repoPath && fs.existsSync(repoPath)) await rimraf(repoPath) } catch {}
+    try {
+      if (repoPath && fs.existsSync(repoPath)) {
+        await rimraf(repoPath);
+      }
+    } catch {}
   },
 
   getSize(dirPath: string) {
-    let total = 0
+    let total = 0;
     const walk = (p: string) => {
       try {
-        const s = fs.statSync(p)
-        if (s.isDirectory()) fs.readdirSync(p).forEach(f => walk(path.join(p, f)))
-        else total += s.size
+        const s = fs.statSync(p);
+        if (s.isDirectory()) {
+          fs.readdirSync(p).forEach((f) => walk(path.join(p, f)));
+        } else {
+          total += s.size;
+        }
       } catch {}
-    }
-    walk(dirPath)
-    return Math.round(total / 1024)
+    };
+    walk(dirPath);
+    return Math.round(total / 1024);
   },
-}
+};
 
-// ── File Scanner ──────────────────────────────────────────────
+// -- File Scanner ----------------------------------------------
 const EXT_LANG: Record<string, string> = {
   '.py':'Python', '.js':'JavaScript', '.jsx':'JavaScript', '.ts':'TypeScript', '.tsx':'TypeScript',
   '.java':'Java', '.html':'HTML', '.htm':'HTML', '.css':'CSS', '.scss':'CSS', '.sass':'CSS',
@@ -212,7 +258,7 @@ function buildTree(rootDir: string, unusedPaths: Set<string> = new Set(), duplic
   return root.children
 }
 
-// ── Language Detector ─────────────────────────────────────────
+// -- Language Detector -----------------------------------------
 function detectLanguages(files: any[]) {
   const counts: Record<string, number> = {}
   for (const f of files) {
@@ -228,7 +274,7 @@ function detectLanguages(files: any[]) {
   return results
 }
 
-// ── Unused File Detector ──────────────────────────────────────
+// -- Unused File Detector --------------------------------------
 const UNUSED_PATTERNS = [
   /\.bak$/i, /\.backup$/i, /\.tmp$/i, /\.temp$/i, /\.old$/i, /\.orig$/i,
   /~$/, /\.swp$/i, /\.swo$/i, /\.log$/i,
@@ -255,7 +301,7 @@ function detectUnusedFiles(files: any[]) {
   return unused
 }
 
-// ── Dependency Checker ────────────────────────────────────────
+// -- Dependency Checker ----------------------------------------
 function checkDependencies(repoPath: string, files: any[]) {
   const hasPip = fs.existsSync(path.join(repoPath, 'requirements.txt'))
   const hasNpm = fs.existsSync(path.join(repoPath, 'package.json'))
@@ -319,7 +365,7 @@ function checkNpm(repoPath: string, files: any[]) {
   return { manager: 'npm', used, unused }
 }
 
-// ── Duplicate Detector ────────────────────────────────────────
+// -- Duplicate Detector ----------------------------------------
 function detectDuplicates(files: any[]) {
   const WINDOW  = 5
   const blockMap = new Map()
@@ -352,7 +398,7 @@ function detectDuplicates(files: any[]) {
   return { duplicates: duplicates.slice(0, 20), duplicateFiles: seenFiles }
 }
 
-// ── Health Score ──────────────────────────────────────────────
+// -- Health Score ----------------------------------------------
 function computeHealthScore(stats: any, deps: any, duplicates: any[], issues: any[]) {
   const totalFiles    = Math.max(stats.totalFiles, 1)
   const fileClean     = Math.max(0, 100 - Math.round((stats.unusedFiles / totalFiles) * 200))
@@ -364,7 +410,7 @@ function computeHealthScore(stats: any, deps: any, duplicates: any[], issues: an
   return { total, breakdown: { fileClean, dependencies, duplicates: dupeScore, structure, documentation } }
 }
 
-// ── Issues Builder ────────────────────────────────────────────
+// -- Issues Builder --------------------------------------------
 function buildIssues(repoPath: string, unusedFiles: any[], deps: any, duplicates: any[]) {
   const issues = []
   let n = 0
@@ -421,7 +467,7 @@ function buildIssues(repoPath: string, unusedFiles: any[], deps: any, duplicates
   return issues
 }
 
-// ── Auto Organizer ────────────────────────────────────────────
+// -- Auto Organizer --------------------------------------------
 const STANDARD_STRUCTURES = {
   Python:     { '/src':'Main modules (*.py)', '/tests':'Tests (test_*.py)', '/docs':'Documentation', '/config':'Config files', '/scripts':'Utility scripts' },
   JavaScript: { '/src':'Source code', '/src/components':'UI components', '/src/pages':'Pages', '/src/utils':'Helpers', '/public':'Static assets', '/tests':'Tests' },
@@ -443,7 +489,7 @@ function buildOrganizerSuggestion(languages: any[], unusedFiles: any[]) {
   }
 }
 
-// ── AI Service ────────────────────────────────────────────────
+// -- AI Service ------------------------------------------------
 let _openai = null
 function getOpenAI() {
   if (!_openai) _openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
@@ -508,7 +554,7 @@ Be specific and technical. No generic advice.`
   return { summary: text, suggestions }
 }
 
-// ── Serialize ─────────────────────────────────────────────────
+// -- Serialize -------------------------------------------------
 function serialize(a) {
   return {
     id: String(a._id), repoId: a.repoId, repoName: a.repoName,
@@ -520,7 +566,7 @@ function serialize(a) {
   }
 }
 
-// ── Full Pipeline ─────────────────────────────────────────────
+// -- Full Pipeline ---------------------------------------------
 export async function runPipeline(jobId: string, owner: string, repo: string, branch: string, user: any) {
   const step  = (s, p) => jobQueue.update(jobId, { step:s, progress:p, status:'running' })
   const start = Date.now()
@@ -581,7 +627,7 @@ export async function runPipeline(jobId: string, owner: string, repo: string, br
     })
 
     await jobQueue.update(jobId, { status: 'done', progress: 100, step: 'Done', analysisId: saved._id });
-    console.log(`[Pipeline] Done in ${(duration/1000).toFixed(1)}s — id=${saved._id}`)
+    console.log(`[Pipeline] Done in ${(duration/1000).toFixed(1)}s   id=${saved._id}`)
 
   } catch (e) {
     console.error('[Pipeline Error]', e.message)
