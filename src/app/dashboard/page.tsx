@@ -4,7 +4,6 @@ import { useSession, signOut } from "next-auth/react";
 import { LogOut } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-
 import RepoCard from "@/components/RepoCard";
 import toast from "react-hot-toast";
 
@@ -15,10 +14,6 @@ export default function Dashboard() {
   const [loadingRepos, setLoadingRepos] = useState(false);
   const [analyzingRepo, setAnalyzingRepo] = useState<string | null>(null);
   const [jobProgress, setJobProgress] = useState<{ step: string; progress: number } | null>(null);
-  const [mounted, setMounted] = useState(false);
-
-  // Ensure server and client render the same initial HTML to prevent hydration mismatch
-  useEffect(() => { setMounted(true); }, []);
 
   useEffect(() => {
     if (status === "unauthenticated") {
@@ -55,8 +50,7 @@ export default function Dashboard() {
     }
   }, [session]);
 
-  // Show spinner on server, during hydration, while loading, or while redirecting
-  if (!mounted || status === "loading" || status === "unauthenticated") {
+  if (status === "loading" || status === "unauthenticated") {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="animate-spin w-8 h-8 border-4 border-accent border-t-transparent rounded-full" />
