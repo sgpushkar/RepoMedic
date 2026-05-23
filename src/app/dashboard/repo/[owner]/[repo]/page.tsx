@@ -33,11 +33,11 @@ export default function RepoViewPage() {
         body: JSON.stringify({ owner, repo, branch: data?.default_branch || "main" }),
       });
       const json = await res.json();
-      if (json.success) {
+      if (json.success && json.data?.jobId) {
         toast.success("Analysis started!");
-        router.push("/dashboard");
+        router.push(`/dashboard?jobId=${json.data.jobId}&repo=${repo}`);
       } else {
-        toast.error(json.error || "Failed to start analysis");
+        toast.error(json?.error || "Failed to start analysis");
       }
     } catch {
       toast.error("Failed to start analysis");

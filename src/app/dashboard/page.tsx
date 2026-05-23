@@ -106,6 +106,21 @@ export default function Dashboard() {
     check();
   };
 
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const jobId = params.get("jobId");
+      const repoName = params.get("repo");
+      if (jobId && repoName) {
+        setAnalyzingRepo(repoName);
+        pollJob(jobId);
+        // Clear params from URL
+        const newUrl = window.location.pathname;
+        window.history.replaceState({}, "", newUrl);
+      }
+    }
+  }, []);
+
   return (
     <div className="min-h-screen bg-bg text-white font-sans p-8">
       <header className="max-w-4xl mx-auto flex items-center justify-between mb-12">
