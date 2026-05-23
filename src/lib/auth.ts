@@ -15,9 +15,11 @@ export const authOptions: NextAuthOptions = {
   ],
   callbacks: {
     async redirect({ url, baseUrl }) {
-      const actualBase = process.env.VERCEL_URL 
-        ? `https://${process.env.VERCEL_URL}` 
-        : baseUrl;
+      const actualBase = process.env.NEXTAUTH_URL
+        ? process.env.NEXTAUTH_URL
+        : process.env.VERCEL_URL 
+          ? `https://${process.env.VERCEL_URL}` 
+          : baseUrl;
       if (url.startsWith("/")) {
         return `${actualBase}${url}`;
       }
