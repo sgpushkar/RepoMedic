@@ -211,7 +211,12 @@ function scanFiles(rootDir: string) {
     let entries = []
     try { entries = fs.readdirSync(dir, { withFileTypes: true }) } catch { return }
     for (const e of entries) {
-      if (SKIP_DIRS.has(e.name) || e.name.startsWith('.')) continue
+      if (SKIP_DIRS.has(e.name)) continue
+      if (e.name.startsWith('.')) {
+        const isAllowedDotDir = e.isDirectory() && (e.name === '.github' || e.name === '.gitlab' || e.name === '.circleci');
+        const isAllowedDotFile = !e.isDirectory() && (e.name.startsWith('.env') || e.name === '.npmrc' || e.name === '.gitlab-ci.yml' || e.name === '.dockerignore');
+        if (!isAllowedDotDir && !isAllowedDotFile) continue
+      }
       const rel  = relBase ? `${relBase}/${e.name}` : e.name
       const full = path.join(dir, e.name)
       if (e.isDirectory()) { walk(full, rel); continue }
@@ -242,7 +247,12 @@ function buildTree(rootDir: string, unusedPaths: Set<string> = new Set(), duplic
       return a.name.localeCompare(b.name)
     })
     for (const e of sorted) {
-      if (SKIP_DIRS.has(e.name) || e.name.startsWith('.')) continue
+      if (SKIP_DIRS.has(e.name)) continue
+      if (e.name.startsWith('.')) {
+        const isAllowedDotDir = e.isDirectory() && (e.name === '.github' || e.name === '.gitlab' || e.name === '.circleci');
+        const isAllowedDotFile = !e.isDirectory() && (e.name.startsWith('.env') || e.name === '.npmrc' || e.name === '.gitlab-ci.yml' || e.name === '.dockerignore');
+        if (!isAllowedDotDir && !isAllowedDotFile) continue
+      }
       const rel    = relBase ? `${relBase}/${e.name}` : e.name
       const full   = path.join(dir, e.name)
       const parent = dirMap[relBase]
@@ -440,11 +450,15 @@ function buildIssues(repoPath: string, unusedFiles: any[], deps: any, duplicates
       severity: v.severity,
       category: 'security',
       cwe: v.cwe,
+      owasp: v.owasp,
+      cvss: v.cvss,
+      sans: v.sans,
       title: v.title,
       file: v.file,
       line: v.line,
       snippet: v.snippet,
       description: v.description,
+      impact: v.impact,
       remediation: v.remediation,
       fixable: v.fixable,
     })

@@ -26,7 +26,7 @@ export async function POST(
   const langList  = (a.languages || []).map((l: any) => `${l.name} (${l.percent}%)`).join(', ');
   const issueList = (a.issues || []).map((i: any) => `[${i.severity.toUpperCase()}] ${i.title}`).join('\n');
   const unusedList = (a.unusedFiles || []).slice(0, 5).map((f: any) => f.name).join(', ');
-  const vulnList = (a.vulnerabilities || []).slice(0, 8).map((v: any) => `[${v.severity.toUpperCase()}] ${v.title} (${v.file}:${v.line}) - ${v.description}`).join('\n');
+  const vulnList = (a.vulnerabilities || []).slice(0, 15).map((v: any) => `[${v.severity.toUpperCase()} | CVSS ${v.cvss || 'N/A'}] ${v.title} (${v.cwe} / ${v.owasp || 'Security'}) at ${v.file}:${v.line} - Impact: ${v.impact || v.description} - Fix: ${v.remediation || 'Remediate vulnerability'}`).join('\n');
 
   const prompt = `You are a senior software engineer and security auditor doing a code review.
 

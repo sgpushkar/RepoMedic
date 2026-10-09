@@ -204,28 +204,70 @@ erDiagram
 
 ---
 
-## 4. Vulnerability & Security Scanner Utility ([src/lib/vulnerabilityScanner.ts](file:///c:/Users/Pushkar%20Mhatre/Desktop/Work/repomedic-ai/src/lib/vulnerabilityScanner.ts))
+## 4. Complex Vulnerability & Security Scanner Utility ([src/lib/vulnerabilityScanner.ts](file:///c:/Users/Pushkar%20Mhatre/Desktop/Work/repomedic-ai/src/lib/vulnerabilityScanner.ts))
 
-RepoMedic includes a built-in Static Application Security Testing (SAST) and credential detection engine that audits the codebase line-by-line during the analysis pipeline.
+RepoMedic features an enterprise-grade Static Application Security Testing (SAST) engine designed for complex codebases. It combines deep regex signatures, AST taint heuristics, OWASP Top 10 taxonomies, multi-line contextual capture, and multi-manifest package dependency CVE auditing.
 
-### 4.1. Security Check Categories
+### 4.1. Multi-Paradigm Analysis Pipeline
+The scanner executes across five synchronized detection phases to uncover both surface-level and deep architectural flaws:
 
-| Category | CWE | Severity | Example Patterns Detected |
-|---|:---:|:---:|---|
-| **Secret Leaks** | CWE-798 | Critical / High | OpenAI keys (`sk-proj-...`), GitHub PATs (`ghp_...`, `github_pat_...`), AWS Access/Secret keys, Supabase Service Role keys, Stripe keys, Private RSA/SSH keys, Hardcoded database URIs with credentials |
-| **Command Injection** | CWE-78 | Critical | Dynamic template interpolation in Node.js `exec()` / `execSync()`, Python `os.system()` and `subprocess(..., shell=True)` |
-| **SQL Injection** | CWE-89 | High | Unescaped string concatenation in raw SQL queries (`SELECT ... + id` or template strings) |
-| **Code Execution** | CWE-95 | Critical / High | `eval()`, `new Function()`, Python `exec()` |
-| **Insecure Deserialization** | CWE-502 | Critical / High | Python `pickle.loads()`, unconstrained `yaml.load()` without SafeLoader, `node-serialize` |
-| **Cross-Site Scripting (XSS)** | CWE-79 | Medium | React `dangerouslySetInnerHTML`, raw `innerHTML` assignments, `document.write()` |
-| **Path Traversal** | CWE-22 | High | Direct use of request parameters in `fs.readFile()` without path normalization |
-| **Cryptographic Weaknesses** | CWE-327 / CWE-338 | Medium | Broken hashes (MD5 / SHA-1) for security signatures, `Math.random()` used for token generation |
-| **Security Misconfiguration** | CWE-295 / CWE-319 | Medium / Low | `rejectUnauthorized: false` (SSL bypass), unencrypted remote HTTP API endpoints |
-| **Dependency Vulnerabilities** | CWE-1104 / CWE-506 | Critical / High | Known compromised or deprecated packages (`node-serialize`, `event-stream`, `flatmap-stream`, `request`) |
+1. **Phase 1: Line-by-Line SAST Engine**:
+   - Evaluates high-precision security rules against every active line of code without early exit shortcuts (`break` removed).
+   - Detects leaked API keys, tokens, hardcoded passwords, dangerous function invocations, and crypto weaknesses.
+   - Masks detected credentials (e.g. `sk-proj-ab****456`) before persistence or UI rendering.
 
-### 4.2. Secret Masking & Safe Reporting
-- When hardcoded secrets are detected, the analyzer automatically masks the sensitive tokens (e.g., `sk-proj-ab****456`) so sensitive production credentials are never revealed in plain text in logs or client-rendered dashboards.
-- Placeholders, mock templates (`your-api-key`, `sk-xxx`), and test fixtures are automatically filtered to prevent false alarms.
+2. **Phase 2: Multi-Line Sliding Pattern Scanning**:
+   - Inspects statements spanning multiple line breaks (e.g. multi-line SQL strings, multi-line command calls, formatted JSX `dangerouslySetInnerHTML`, and multi-line CORS definitions).
+   - Accurately computes exact 1-indexed line numbers using string index tracking.
+
+3. **Phase 3: Heuristic AST Taint Flow Analysis**:
+   - **Source Identification**: Detects untrusted user inputs (`req.body`, `req.query`, `req.params`, `request.args`, `request.form`, `sys.argv`, `input()`).
+   - **Taint Propagation**: Traces variable assignments downstream across local execution blocks.
+   - **Sanitizer Verification**: Verifies whether data passes through sanitizers (`DOMPurify`, `encodeURIComponent`, `shlex.quote`, `parseInt`, `path.basename`).
+   - **Sink Interception**: Flags untrusted flows terminating in critical sinks (`exec`, `spawn`, `db.query`, `fetch`, `open`, `eval`) as high-confidence Taint-Flow findings.
+
+4. **Phase 4: Multi-Manifest Supply Chain Auditing**:
+   - Scans `package.json` (NPM), `requirements.txt` (Python pip), `Pipfile`, and `go.mod`.
+   - Cross-references dependencies against known critical CVE advisories (Log4j, Spring4Shell, Lodash prototype pollution, Axios SSRF, JsonWebToken confusion, Minimist, VM2 sandbox escapes, PyYAML, Pillow).
+   - Flags wildcard and unpinned dependency declarations (`*`, `latest`).
+
+5. **Phase 5: Security Posture & Metrics Calculation**:
+   - Calculates **Security Score** ($0 - 100$) with severity deductions (Critical: -30, High: -15, Medium: -6, Low: -2).
+   - Awards a **Security Grade** (`A+`, `A`, `B`, `C`, `D`, `F`).
+   - Computes **Vulnerability Density** (findings per 1,000 LOC).
+   - Estimates **Mean Time to Remediate (MTTR)** in developer minutes.
+
+---
+
+### 4.2. Enterprise Security Rule Matrix
+
+| Category | CWE | OWASP / Standard | SANS Top 25 | CVSS | Severity | Vectors Detected & Mitigation |
+|---|:---:|:---:|:---:|:---:|:---:|---|
+| **Secret & Key Leaks** | CWE-798 | A02:2021 | Yes | 8.5 - 9.8 | Critical / High | OpenAI, Anthropic Claude, HuggingFace, Cohere, GitHub PATs, GitLab tokens, AWS keys, GCP keys, Supabase Service Role keys, Stripe secret/webhook keys, Twilio, SendGrid, Slack bot/webhook tokens, Discord webhooks, NPM & PyPI tokens, Database connection URIs with passwords, RSA/SSH private keys, JWT secrets. Automated credential masking. |
+| **Command Injection** | CWE-78 | A03:2021 | Yes (#2) | 8.8 - 9.8 | Critical | Node.js `exec()` / `execSync()` with dynamic string concatenation; `spawn()` with `shell: true`; Python `os.system()`, `subprocess.Popen(shell=True)`. Mitigation: `execFile()` or `subprocess.run(..., shell=False)`. |
+| **Taint Data-Flow** | CWE-78 / 89 / 22 / 918 | A03:2021 | Yes | 8.6 - 9.8 | Critical / High | User inputs (`req.query`, `req.body`, `request.args`) tracked propagating into OS commands, SQL queries, file system calls, or HTTP destinations without sanitization. |
+| **SQL & NoSQL Injection** | CWE-89 / 943 | A03:2021 | Yes (#3) | 8.8 - 9.5 | Critical / High | Raw SQL string interpolation; ORM raw query bypasses (Prisma `$queryRawUnsafe`, Sequelize `query()`, TypeORM `query()`); MongoDB `$where` clauses with JS expressions. Mitigation: Parameterized bindings (`$1`, `?`). |
+| **AI & LLM Security** | CWE-20 / 95 | LLM01 / LLM02 | - | 8.2 - 9.6 | Critical / High | Direct user input concatenation into prompt templates without boundary tags; Insecure execution of model output via `eval()` or child process without containerization. |
+| **Code Execution** | CWE-95 | A03:2021 | Yes | 8.5 - 9.8 | Critical / High | JavaScript `eval()`, `new Function()`, Node.js `vm.runInContext()`; Python `eval()`, `exec()`. Mitigation: `JSON.parse()` or `ast.literal_eval()`. |
+| **Insecure Deserialization** | CWE-502 | A08:2021 | Yes | 8.8 - 9.8 | Critical / High | Python `pickle.loads()`, `shelve.open()`; PyYAML `yaml.load()` without SafeLoader; Node.js `node-serialize.unserialize()`. Mitigation: JSON/Protobuf or `yaml.safe_load()`. |
+| **SSRF** | CWE-918 | A10:2021 | Yes | 8.6 - 9.6 | Critical / High | Direct HTTP client calls (`fetch`, `axios.get`, `requests.get`) with untrusted URLs; Direct connections to Cloud Metadata IP (`169.254.169.254`, `metadata.google.internal`). |
+| **Path Traversal & Zip Slip** | CWE-22 | A01:2021 | Yes (#8) | 8.4 - 8.6 | High | `fs.readFile()`, `open()` with user-controlled filenames without canonical boundary checking; Zip Slip archive extraction vulnerability. Mitigation: `path.resolve(base, file).startsWith(base)`. |
+| **Cross-Site Scripting (XSS)** | CWE-79 | A03:2021 | Yes (#1) | 6.1 - 6.5 | Medium | React `dangerouslySetInnerHTML`, Vue `v-html`, DOM `innerHTML` / `outerHTML`, `href="javascript:..."` injection. Mitigation: `DOMPurify.sanitize()`. |
+| **Auth Bypass & JWT** | CWE-347 / 798 | A07:2021 | - | 8.5 - 9.8 | Critical / High | JWT verification allowing algorithm: `"none"`; Hardcoded administrative backdoor logic; Cookie missing `httpOnly: true` or `secure: true`. |
+| **Prototype Pollution** | CWE-1321 | A08:2021 | - | 8.5 | High | Direct assignments to `__proto__`, `constructor`, or `prototype` in dynamic object assignments. |
+| **Cryptographic Failures** | CWE-327 / 338 | A02:2021 | - | 5.9 - 8.2 | High / Medium | Broken hash algorithms (MD5, SHA-1) for integrity; Insecure ciphers (DES, RC4, AES-ECB mode); Insecure PRNG (`Math.random()`) for security tokens; Timing attacks in HMAC equality checks (`===`). |
+| **Security Misconfiguration** | CWE-295 / 942 | A05:2021 | - | 4.3 - 8.7 | High / Low | Disabled TLS certificate verification (`rejectUnauthorized: false`); Wildcard CORS with credentials (`*`); Verbose error stack traces returned to client. |
+| **DevSecOps & IaC** | CWE-250 / 78 | A05:2021 | - | 3.8 - 9.3 | Critical / Med | Dockerfile running as root (`USER root`), unpinned `:latest` base image; GitHub Actions workflow script injection (`${{ github.event... }}`) in `run:` steps, unpinned 3rd-party actions (`@main`). |
+| **Dependency CVE Auditing** | CWE-1104 / 506 | A06:2021 | - | 6.2 - 10.0 | Critical / Med | NPM and Python dependency audits against known CVEs (Lodash, Axios, JsonWebToken, Minimist, VM2, Pillow, Django, PyYAML); Unpinned wildcard declarations (`*`, `latest`). |
+
+---
+
+### 4.3. Advanced Contextual Reporting & UI Features
+- **Multi-Line Context**: Extracts formatted code snippets (`line - 1`, target vulnerable line `> `, `line + 1`) displaying line numbering and highlighted markers.
+- **Taint Flow Visualization**: Interactive trace showing the untrusted Source expression, the tainted variable name, and the dangerous Sink.
+- **One-Click Quick Fix**: Provides concrete remediation code diffs with an interactive "Copy Patch" button.
+- **Standards & Compliance Badges**: Mapped to CVSS v3.1 scores, SANS Top 25, PCI-DSS v4.0, and OWASP Top 10 categories.
+- **Interactive Filtering**: Real-time keyword search across files, CVEs, and rules, combined with Category Pill buttons and Severity filter cards.
 
 ---
 

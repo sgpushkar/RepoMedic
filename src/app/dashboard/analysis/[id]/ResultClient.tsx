@@ -18,6 +18,9 @@ import {
   ShieldCheck,
   Shield,
   FileCode,
+  Search,
+  Check,
+  Wrench,
 } from "lucide-react";
 import { HealthRing, LanguagePie, ScoreBreakdown, IssuesSummary } from "@/components/ScoreChart";
 import FileTree from "@/components/FileTree";
@@ -29,6 +32,9 @@ export default function ResultClient({ initialData }: { initialData: any }) {
   const [data, setData] = useState(initialData);
   const [activeTab, setActiveTab] = useState('Overview');
   const [severityFilter, setSeverityFilter] = useState<'all' | 'critical' | 'high' | 'medium' | 'low'>('all');
+  const [categoryFilter, setCategoryFilter] = useState<string>('all');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [copiedPatchId, setCopiedPatchId] = useState<string | null>(null);
 
   const handleDownloadCleanup = () => {
     const files = data.unusedFiles?.map((f: any) => `rm "${f.path}"`).join('\n');
@@ -44,10 +50,25 @@ export default function ResultClient({ initialData }: { initialData: any }) {
     toast.success("Cleanup script downloaded");
   };
 
+  const copyPatch = (id: string, patch: string) => {
+    if (!patch) return;
+    navigator.clipboard.writeText(patch);
+    setCopiedPatchId(id);
+    toast.success("Remediation snippet copied!");
+    setTimeout(() => setCopiedPatchId(null), 2500);
+  };
+
   const vulnerabilities = data.vulnerabilities || [];
-  const filteredVulns = severityFilter === 'all'
-    ? vulnerabilities
-    : vulnerabilities.filter((v: any) => v.severity === severityFilter);
+  const filteredVulns = vulnerabilities.filter((v: any) => {
+    if (severityFilter !== 'all' && v.severity !== severityFilter) return false;
+    if (categoryFilter !== 'all' && v.category !== categoryFilter) return false;
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      const matchText = `${v.title || ''} ${v.description || ''} ${v.file || ''} ${v.cwe || ''} ${v.owasp || ''} ${v.ruleId || ''} ${v.snippet || ''} ${v.impact || ''}`.toLowerCase();
+      if (!matchText.includes(q)) return false;
+    }
+    return true;
+  });
 
   const critCount = vulnerabilities.filter((v: any) => v.severity === 'critical').length;
   const highCount = vulnerabilities.filter((v: any) => v.severity === 'high').length;
@@ -170,24 +191,52 @@ export default function ResultClient({ initialData }: { initialData: any }) {
           {/* Security Tab */}
           {activeTab === 'Security' && (
             <div className="space-y-6">
-              <div className="card border-red-500/20 bg-gradient-to-r from-red-500/10 via-surface to-surface flex flex-col md:flex-row md:items-center justify-between gap-4">
+              {/* Header Posture Card */}
+              <div className="card border-red-500/20 bg-gradient-to-r from-red-500/10 via-surface to-surface flex flex-col lg:flex-row lg:items-center justify-between gap-6 p-6">
                 <div>
-                  <h2 className="text-xl font-bold font-display flex items-center gap-2 text-white">
+                  <div className="flex items-center gap-2 mb-2">
                     <ShieldAlert className="text-red-400" size={24} />
-                    Security & Vulnerability Audit
-                  </h2>
-                  <p className="text-muted text-sm mt-1">
-                    Static Application Security Testing (SAST) for hardcoded secrets, injection flaws, and insecure dependencies.
+                    <h2 className="text-xl font-bold font-display text-white">
+                      Deep Security & Vulnerability Audit
+                    </h2>
+                    <span className="px-2.5 py-0.5 rounded-full text-xs font-mono font-bold bg-accent/20 text-accent border border-accent/30">
+                      SAST Engine v2.0
+                    </span>
+                  </div>
+                  <p className="text-muted text-sm max-w-2xl leading-relaxed">
+                    Automated static analysis, taint data-flow tracking, credential leak detection, and supply-chain vulnerability auditing mapped to CWE, OWASP Top 10, and SANS Top 25.
                   </p>
                 </div>
-                <div className="flex items-center gap-3">
-                  <div className="px-3.5 py-1.5 rounded-lg bg-surface2 border border-border text-xs font-mono">
-                    Security Score: <span className="font-bold text-accent">{data.healthScore?.breakdown?.security !== undefined ? data.healthScore.breakdown.security : 100}/100</span>
+
+                <div className="flex flex-wrap items-center gap-3">
+                  <div className="px-4 py-2 rounded-xl bg-surface2 border border-border flex items-center gap-3">
+                    <div className="text-right">
+                      <div className="text-[10px] uppercase font-mono text-muted tracking-wider">Security Score</div>
+                      <div className="text-lg font-bold font-mono text-accent">
+                        {data.healthScore?.breakdown?.security !== undefined ? data.healthScore.breakdown.security : 100}/100
+                      </div>
+                    </div>
+                    <div className={`px-2.5 py-1 rounded-lg text-sm font-bold font-mono border ${
+                      (data.healthScore?.breakdown?.security ?? 100) >= 90
+                        ? 'text-emerald-400 bg-emerald-500/15 border-emerald-500/30'
+                        : (data.healthScore?.breakdown?.security ?? 100) >= 75
+                        ? 'text-blue-400 bg-blue-500/15 border-blue-500/30'
+                        : (data.healthScore?.breakdown?.security ?? 100) >= 60
+                        ? 'text-amber-400 bg-amber-500/15 border-amber-500/30'
+                        : 'text-red-400 bg-red-500/15 border-red-500/30'
+                    }`}>
+                      Grade {(data.healthScore?.breakdown?.security ?? 100) >= 95 ? 'A+' : (data.healthScore?.breakdown?.security ?? 100) >= 90 ? 'A' : (data.healthScore?.breakdown?.security ?? 100) >= 80 ? 'B' : (data.healthScore?.breakdown?.security ?? 100) >= 70 ? 'C' : (data.healthScore?.breakdown?.security ?? 100) >= 60 ? 'D' : 'F'}
+                    </div>
+                  </div>
+
+                  <div className="px-3.5 py-2 rounded-xl bg-surface2 border border-border text-xs font-mono space-y-0.5">
+                    <div className="text-muted">Files: <span className="text-white font-bold">{data.stats?.totalFiles || 0}</span></div>
+                    <div className="text-muted">Density: <span className="text-accent font-bold">{((vulnerabilities.length / Math.max(data.stats?.totalLines || 1, 1)) * 1000).toFixed(1)}</span> / 1k LOC</div>
                   </div>
                 </div>
               </div>
 
-              {/* Summary Cards */}
+              {/* Summary Severity Cards */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <button
                   onClick={() => setSeverityFilter(severityFilter === 'critical' ? 'all' : 'critical')}
@@ -227,6 +276,68 @@ export default function ResultClient({ initialData }: { initialData: any }) {
                 </button>
               </div>
 
+              {/* Search & Category Filter Controls */}
+              <div className="card p-4 space-y-3 border border-border">
+                <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted" size={16} />
+                    <input
+                      type="text"
+                      placeholder="Search vulnerabilities by keyword, file, CVE, CWE, or description..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="w-full pl-10 pr-4 py-2 bg-surface2 rounded-xl border border-border text-sm text-white placeholder-muted focus:outline-none focus:border-accent"
+                    />
+                    {searchQuery && (
+                      <button
+                        onClick={() => setSearchQuery('')}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-mono text-muted hover:text-white"
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
+                  <div className="text-xs font-mono text-muted whitespace-nowrap self-center">
+                    Showing <span className="text-white font-bold">{filteredVulns.length}</span> of {vulnerabilities.length} findings
+                  </div>
+                </div>
+
+                {/* Category Chips */}
+                <div className="flex items-center gap-1.5 overflow-x-auto custom-scrollbar pb-1 pt-1">
+                  {[
+                    { id: 'all', label: 'All Categories' },
+                    { id: 'secret-leak', label: 'Secrets' },
+                    { id: 'injection', label: 'Injections' },
+                    { id: 'taint-flow', label: 'Taint Flow' },
+                    { id: 'ai-security', label: 'AI Security' },
+                    { id: 'code-execution', label: 'Code Exec' },
+                    { id: 'ssrf', label: 'SSRF' },
+                    { id: 'path-traversal', label: 'Path Traversal' },
+                    { id: 'xss', label: 'XSS' },
+                    { id: 'auth-bypass', label: 'Auth & Access' },
+                    { id: 'iac-devops', label: 'DevSecOps & IaC' },
+                    { id: 'dependency', label: 'Supply Chain' },
+                    { id: 'crypto', label: 'Cryptography' },
+                    { id: 'misconfiguration', label: 'Misconfig' },
+                  ].map(cat => {
+                    const active = categoryFilter === cat.id;
+                    return (
+                      <button
+                        key={cat.id}
+                        onClick={() => setCategoryFilter(cat.id)}
+                        className={`px-3 py-1 rounded-lg text-xs font-medium whitespace-nowrap transition-all ${
+                          active
+                            ? 'bg-accent text-white shadow-sm'
+                            : 'bg-surface2 text-muted hover:text-white hover:bg-surface border border-border/60'
+                        }`}
+                      >
+                        {cat.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
               {/* Vulnerabilities List */}
               {filteredVulns.length > 0 ? (
                 <div className="space-y-4">
@@ -242,14 +353,29 @@ export default function ResultClient({ initialData }: { initialData: any }) {
                       ? 'bg-amber-500/20 text-amber-400 border-amber-500/40'
                       : 'bg-blue-500/20 text-blue-400 border-blue-500/40';
 
+                    const cvssColor = (vuln.cvss ?? 0) >= 9.0
+                      ? 'bg-red-500/20 text-red-400 border-red-500/40'
+                      : (vuln.cvss ?? 0) >= 7.0
+                      ? 'bg-orange-500/20 text-orange-400 border-orange-500/40'
+                      : (vuln.cvss ?? 0) >= 4.0
+                      ? 'bg-amber-500/20 text-amber-400 border-amber-500/40'
+                      : 'bg-blue-500/20 text-blue-400 border-blue-500/40';
+
                     return (
-                      <div key={idx} className="card p-5 border border-border hover:border-border/80 transition-all space-y-3">
+                      <div key={idx} className="card p-5 border border-border hover:border-border/80 transition-all space-y-3.5">
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <div className="flex flex-wrap items-center gap-2">
                             <span className={`px-2.5 py-0.5 rounded text-xs font-mono font-bold border uppercase ${badgeClass}`}>
                               {vuln.severity}
                             </span>
+                            {vuln.cvss && (
+                              <span className={`px-2 py-0.5 rounded text-xs font-mono font-bold border ${cvssColor}`}>
+                                CVSS {vuln.cvss.toFixed(1)}
+                              </span>
+                            )}
                             <span className="tag-purple text-xs font-mono">{vuln.cwe}</span>
+                            {vuln.owasp && <span className="tag-blue text-xs font-mono">{vuln.owasp.split('-')[0]}</span>}
+                            {vuln.sans && <span className="px-2 py-0.5 rounded text-[11px] font-mono bg-indigo-500/15 text-indigo-300 border border-indigo-500/30">SANS Top 25</span>}
                             <span className="tag-gray text-xs">{vuln.category}</span>
                             <h3 className="font-semibold text-base text-white">{vuln.title}</h3>
                           </div>
@@ -259,21 +385,69 @@ export default function ResultClient({ initialData }: { initialData: any }) {
                           </div>
                         </div>
 
-                        {vuln.snippet && (
-                          <div className="bg-bg/90 border border-border/80 rounded-lg p-3 font-mono text-xs overflow-x-auto text-[#e8e8f4]">
-                            <span className="text-muted mr-3 select-none">{vuln.line} |</span>
-                            <code>{vuln.snippet}</code>
+                        {/* Source to Sink Trace if available */}
+                        {vuln.sourceSinkFlow && (
+                          <div className="bg-purple-950/20 border border-purple-500/30 rounded-lg p-3 text-xs font-mono space-y-1.5">
+                            <div className="text-purple-300 font-bold flex items-center gap-1.5">
+                              <span>↳ Taint Data Flow Path:</span>
+                              <span className="text-white bg-purple-500/20 px-1.5 py-0.5 rounded text-[10px]">Variable: {vuln.sourceSinkFlow.taintedVar}</span>
+                            </div>
+                            <div className="text-muted">Source: <span className="text-purple-200">{vuln.sourceSinkFlow.source}</span></div>
+                            <div className="text-muted">Sink:   <span className="text-red-300">{vuln.sourceSinkFlow.sink}</span></div>
                           </div>
+                        )}
+
+                        {vuln.snippet && (
+                          <pre className="bg-bg/95 border border-border/80 rounded-lg p-3 font-mono text-xs overflow-x-auto text-[#e8e8f4] whitespace-pre leading-relaxed custom-scrollbar">
+                            <code>{vuln.snippet}</code>
+                          </pre>
                         )}
 
                         <p className="text-sm text-muted leading-relaxed">
                           {vuln.description}
                         </p>
 
+                        {vuln.impact && (
+                          <div className="text-xs text-red-300/90 leading-relaxed bg-red-500/5 border border-red-500/20 rounded-lg p-2.5 flex items-start gap-1.5">
+                            <span className="font-bold text-red-400 shrink-0">Impact:</span>
+                            <span>{vuln.impact}</span>
+                          </div>
+                        )}
+
                         {vuln.remediation && (
                           <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-lg p-3 text-xs flex items-start gap-2 text-emerald-300">
                             <span className="font-bold text-emerald-400 shrink-0">Remediation:</span>
                             <span>{vuln.remediation}</span>
+                          </div>
+                        )}
+
+                        {vuln.suggestedPatch && (
+                          <div className="bg-surface2/80 border border-accent/20 rounded-lg p-3 space-y-2">
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs font-bold text-accent flex items-center gap-1.5">
+                                <Wrench size={13} />
+                                Suggested Quick Fix:
+                              </span>
+                              <button
+                                onClick={() => copyPatch(vuln.id, vuln.suggestedPatch)}
+                                className="px-2.5 py-1 rounded bg-accent/20 hover:bg-accent/30 text-accent border border-accent/30 text-xs font-mono flex items-center gap-1.5 transition-all"
+                              >
+                                {copiedPatchId === vuln.id ? (
+                                  <>
+                                    <Check size={12} className="text-emerald-400" />
+                                    <span className="text-emerald-400">Copied</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Copy size={12} />
+                                    <span>Copy Patch</span>
+                                  </>
+                                )}
+                              </button>
+                            </div>
+                            <pre className="p-2 rounded bg-bg font-mono text-xs text-emerald-300 overflow-x-auto custom-scrollbar">
+                              <code>{vuln.suggestedPatch}</code>
+                            </pre>
                           </div>
                         )}
                       </div>
@@ -283,9 +457,11 @@ export default function ResultClient({ initialData }: { initialData: any }) {
               ) : (
                 <div className="card py-16 text-center space-y-3 flex flex-col items-center">
                   <ShieldCheck size={48} className="text-emerald-400" />
-                  <h3 className="text-lg font-bold text-white">No Vulnerabilities Found!</h3>
+                  <h3 className="text-lg font-bold text-white">No Matching Vulnerabilities!</h3>
                   <p className="text-sm text-muted max-w-md">
-                    {severityFilter === 'all'
+                    {searchQuery
+                      ? `No vulnerabilities matching "${searchQuery}" in ${categoryFilter} category.`
+                      : severityFilter === 'all'
                       ? 'No security vulnerabilities, secret leaks, or insecure dependencies were detected in this repository.'
                       : `No ${severityFilter} severity vulnerabilities were found.`}
                   </p>
