@@ -9,6 +9,7 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@types/pg": "^8.23.1",
     "axios": "^1.16.1",
     "clsx": "^2.1.1",
     "lucide-react": "^1.16.0",
@@ -16,6 +17,7 @@
     "next": "16.2.6",
     "next-auth": "^4.24.14",
     "openai": "^6.39.0",
+    "pg": "^8.23.1",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "react-hot-toast": "^2.6.0",

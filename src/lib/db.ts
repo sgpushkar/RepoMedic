@@ -1,41 +1,36 @@
-import mongoose from "mongoose";
+import { Pool, QueryResult, QueryResultRow } from 'pg';
 
-const MONGODB_URI = process.env.MONGODB_URI || "mongodb://localhost:27017/repomedic";
+const connectionString =
+  process.env.DATABASE_URL ||
+  process.env.SUPABASE_DB_URL;
 
-if (!MONGODB_URI) {
-  throw new Error("Please define the MONGODB_URI environment variable inside .env.local");
+if (!connectionString) {
+  throw new Error('Please define the DATABASE_URL environment variable inside .env.local');
 }
 
-let cached = (global as any).mongoose;
+const globalPool = global as unknown as { pgPool?: Pool };
 
-if (!cached) {
-  cached = (global as any).mongoose = { conn: null, promise: null };
+if (!globalPool.pgPool) {
+  globalPool.pgPool = new Pool({
+    connectionString,
+    ssl: { rejectUnauthorized: false },
+    max: 10,
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 10000,
+  });
 }
 
-async function dbConnect() {
-  if (cached.conn) {
-    return cached.conn;
-  }
+const pool = globalPool.pgPool;
 
-  if (!cached.promise) {
-    const opts = {
-      bufferCommands: false,
-    };
+export async function query<R extends QueryResultRow = any>(
+  text: string,
+  params?: any[]
+): Promise<QueryResult<R>> {
+  return pool.query<R>(text, params);
+}
 
-    cached.promise = mongoose.connect(MONGODB_URI, opts).then((mongoose) => {
-      console.log("MongoDB connected");
-      return mongoose;
-    });
-  }
-
-  try {
-    cached.conn = await cached.promise;
-  } catch (e) {
-    cached.promise = null;
-    throw e;
-  }
-
-  return cached.conn;
+export async function dbConnect() {
+  return pool;
 }
 
 export default dbConnect;

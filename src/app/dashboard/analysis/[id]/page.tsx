@@ -24,15 +24,15 @@ export default async function AnalysisResult({ params }: { params: Promise<{ id:
     );
   }
 
-  // Convert MongoDB ObjectIds and Dates to strings to pass safely to Client Component
+  // Convert IDs and Dates to strings to pass safely to Client Component
   const safeData = {
     ...data,
-    id: String(data._id),
-    _id: String(data._id),
+    id: String(data._id || data.id),
+    _id: String(data._id || data.id),
     userId: String(data.userId),
-    analyzedAt: data.analyzedAt.toISOString(),
-    createdAt: data.createdAt?.toISOString(),
-    updatedAt: data.updatedAt?.toISOString(),
+    analyzedAt: data.analyzedAt instanceof Date ? data.analyzedAt.toISOString() : new Date(data.analyzedAt).toISOString(),
+    createdAt: data.createdAt ? (data.createdAt instanceof Date ? data.createdAt.toISOString() : new Date(data.createdAt).toISOString()) : undefined,
+    updatedAt: data.updatedAt ? (data.updatedAt instanceof Date ? data.updatedAt.toISOString() : new Date(data.updatedAt).toISOString()) : undefined,
   };
 
   return <ResultClient initialData={safeData} />;
