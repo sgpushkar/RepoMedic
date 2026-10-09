@@ -2,16 +2,33 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Clock, Code2, Copy, FileWarning, PackageMinus, Download, FolderTree, AlertTriangle, Layers, Zap } from "lucide-react";
+import {
+  ArrowLeft,
+  Clock,
+  Code2,
+  Copy,
+  FileWarning,
+  PackageMinus,
+  Download,
+  FolderTree,
+  AlertTriangle,
+  Layers,
+  Zap,
+  ShieldAlert,
+  ShieldCheck,
+  Shield,
+  FileCode,
+} from "lucide-react";
 import { HealthRing, LanguagePie, ScoreBreakdown, IssuesSummary } from "@/components/ScoreChart";
 import FileTree from "@/components/FileTree";
 import toast from "react-hot-toast";
 
-const TABS = ['Overview', 'File Tree', 'Cleanup', 'Dependencies', 'Duplicates', 'Organizer', 'Issues'];
+const TABS = ['Overview', 'Security', 'File Tree', 'Cleanup', 'Dependencies', 'Duplicates', 'Organizer', 'Issues'];
 
 export default function ResultClient({ initialData }: { initialData: any }) {
   const [data, setData] = useState(initialData);
   const [activeTab, setActiveTab] = useState('Overview');
+  const [severityFilter, setSeverityFilter] = useState<'all' | 'critical' | 'high' | 'medium' | 'low'>('all');
 
   const handleDownloadCleanup = () => {
     const files = data.unusedFiles?.map((f: any) => `rm "${f.path}"`).join('\n');
@@ -26,6 +43,16 @@ export default function ResultClient({ initialData }: { initialData: any }) {
     URL.revokeObjectURL(url);
     toast.success("Cleanup script downloaded");
   };
+
+  const vulnerabilities = data.vulnerabilities || [];
+  const filteredVulns = severityFilter === 'all'
+    ? vulnerabilities
+    : vulnerabilities.filter((v: any) => v.severity === severityFilter);
+
+  const critCount = vulnerabilities.filter((v: any) => v.severity === 'critical').length;
+  const highCount = vulnerabilities.filter((v: any) => v.severity === 'high').length;
+  const medCount  = vulnerabilities.filter((v: any) => v.severity === 'medium').length;
+  const lowCount  = vulnerabilities.filter((v: any) => v.severity === 'low').length;
 
   return (
     <div className="min-h-screen bg-bg text-white font-sans p-4 md:p-8">
@@ -58,13 +85,23 @@ export default function ResultClient({ initialData }: { initialData: any }) {
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
-                className={`whitespace-nowrap px-4 py-2 rounded-xl text-sm font-semibold transition-all ${
+                className={`whitespace-nowrap px-4 py-2 rounded-xl text-sm font-semibold transition-all flex items-center gap-1.5 ${
                   active ? "bg-accent/10 text-accent border border-accent/20" : "bg-surface border border-transparent text-muted hover:text-[#e8e8f4] hover:bg-surface2"
                 }`}
               >
-                {tab}
+                {tab === 'Security' && (
+                  <Shield size={14} className={critCount > 0 || highCount > 0 ? "text-red-400" : "text-emerald-400"} />
+                )}
+                <span>{tab}</span>
+                {tab === 'Security' && vulnerabilities.length > 0 && (
+                  <span className={`ml-1 px-1.5 py-0.2 text-[10px] font-bold rounded-full font-mono ${
+                    critCount > 0 ? "bg-red-500/20 text-red-400 border border-red-500/30" : "bg-amber-500/20 text-amber-400 border border-amber-500/30"
+                  }`}>
+                    {vulnerabilities.length}
+                  </span>
+                )}
               </button>
-            )
+            );
           })}
         </div>
 
@@ -90,7 +127,7 @@ export default function ResultClient({ initialData }: { initialData: any }) {
                   </div>
                 </div>
               </div>
-              <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+              <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
                 <div className="card-sm flex flex-col items-center text-center p-5 hover:border-accent/30 transition-colors">
                   <Code2 size={24} className="text-accent mb-3" />
                   <span className="text-3xl font-display font-bold">{data.stats?.totalFiles || 0}</span>
@@ -100,6 +137,16 @@ export default function ResultClient({ initialData }: { initialData: any }) {
                   <Clock size={24} className="text-blue-400 mb-3" />
                   <span className="text-3xl font-display font-bold">{data.stats?.totalLines || 0}</span>
                   <span className="label mt-1">Lines</span>
+                </div>
+                <div
+                  className="card-sm flex flex-col items-center text-center p-5 hover:border-red-500/40 transition-colors cursor-pointer"
+                  onClick={() => setActiveTab('Security')}
+                >
+                  <ShieldAlert size={24} className={critCount > 0 || highCount > 0 ? "text-red-400 mb-3" : "text-emerald-400 mb-3"} />
+                  <span className={`text-3xl font-display font-bold ${critCount > 0 || highCount > 0 ? "text-red-400" : "text-emerald-400"}`}>
+                    {vulnerabilities.length}
+                  </span>
+                  <span className="label mt-1">Vulnerabilities</span>
                 </div>
                 <div className="card-sm flex flex-col items-center text-center p-5 hover:border-red-400/30 transition-colors">
                   <FileWarning size={24} className="text-red-400 mb-3" />
@@ -120,6 +167,133 @@ export default function ResultClient({ initialData }: { initialData: any }) {
             </div>
           )}
 
+          {/* Security Tab */}
+          {activeTab === 'Security' && (
+            <div className="space-y-6">
+              <div className="card border-red-500/20 bg-gradient-to-r from-red-500/10 via-surface to-surface flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                  <h2 className="text-xl font-bold font-display flex items-center gap-2 text-white">
+                    <ShieldAlert className="text-red-400" size={24} />
+                    Security & Vulnerability Audit
+                  </h2>
+                  <p className="text-muted text-sm mt-1">
+                    Static Application Security Testing (SAST) for hardcoded secrets, injection flaws, and insecure dependencies.
+                  </p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="px-3.5 py-1.5 rounded-lg bg-surface2 border border-border text-xs font-mono">
+                    Security Score: <span className="font-bold text-accent">{data.healthScore?.breakdown?.security !== undefined ? data.healthScore.breakdown.security : 100}/100</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Summary Cards */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <button
+                  onClick={() => setSeverityFilter(severityFilter === 'critical' ? 'all' : 'critical')}
+                  className={`card-sm p-4 text-center transition-all ${
+                    severityFilter === 'critical' ? 'ring-2 ring-red-500 bg-red-500/15' : 'hover:border-red-500/40'
+                  }`}
+                >
+                  <span className="text-2xl font-bold font-mono text-red-500">{critCount}</span>
+                  <span className="block text-xs font-semibold text-red-400 mt-1 uppercase tracking-wide">Critical</span>
+                </button>
+                <button
+                  onClick={() => setSeverityFilter(severityFilter === 'high' ? 'all' : 'high')}
+                  className={`card-sm p-4 text-center transition-all ${
+                    severityFilter === 'high' ? 'ring-2 ring-orange-500 bg-orange-500/15' : 'hover:border-orange-500/40'
+                  }`}
+                >
+                  <span className="text-2xl font-bold font-mono text-orange-400">{highCount}</span>
+                  <span className="block text-xs font-semibold text-orange-400 mt-1 uppercase tracking-wide">High</span>
+                </button>
+                <button
+                  onClick={() => setSeverityFilter(severityFilter === 'medium' ? 'all' : 'medium')}
+                  className={`card-sm p-4 text-center transition-all ${
+                    severityFilter === 'medium' ? 'ring-2 ring-amber-500 bg-amber-500/15' : 'hover:border-amber-500/40'
+                  }`}
+                >
+                  <span className="text-2xl font-bold font-mono text-amber-400">{medCount}</span>
+                  <span className="block text-xs font-semibold text-amber-400 mt-1 uppercase tracking-wide">Medium</span>
+                </button>
+                <button
+                  onClick={() => setSeverityFilter(severityFilter === 'low' ? 'all' : 'low')}
+                  className={`card-sm p-4 text-center transition-all ${
+                    severityFilter === 'low' ? 'ring-2 ring-blue-500 bg-blue-500/15' : 'hover:border-blue-500/40'
+                  }`}
+                >
+                  <span className="text-2xl font-bold font-mono text-blue-400">{lowCount}</span>
+                  <span className="block text-xs font-semibold text-blue-400 mt-1 uppercase tracking-wide">Low</span>
+                </button>
+              </div>
+
+              {/* Vulnerabilities List */}
+              {filteredVulns.length > 0 ? (
+                <div className="space-y-4">
+                  {filteredVulns.map((vuln: any, idx: number) => {
+                    const isCrit = vuln.severity === 'critical';
+                    const isHigh = vuln.severity === 'high';
+                    const isMed  = vuln.severity === 'medium';
+                    const badgeClass = isCrit
+                      ? 'bg-red-500/20 text-red-400 border-red-500/40'
+                      : isHigh
+                      ? 'bg-orange-500/20 text-orange-400 border-orange-500/40'
+                      : isMed
+                      ? 'bg-amber-500/20 text-amber-400 border-amber-500/40'
+                      : 'bg-blue-500/20 text-blue-400 border-blue-500/40';
+
+                    return (
+                      <div key={idx} className="card p-5 border border-border hover:border-border/80 transition-all space-y-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className={`px-2.5 py-0.5 rounded text-xs font-mono font-bold border uppercase ${badgeClass}`}>
+                              {vuln.severity}
+                            </span>
+                            <span className="tag-purple text-xs font-mono">{vuln.cwe}</span>
+                            <span className="tag-gray text-xs">{vuln.category}</span>
+                            <h3 className="font-semibold text-base text-white">{vuln.title}</h3>
+                          </div>
+                          <div className="flex items-center gap-1.5 text-xs font-mono text-muted bg-surface2 px-2.5 py-1 rounded border border-border">
+                            <FileCode size={13} className="text-muted" />
+                            <span>{vuln.file}:{vuln.line}</span>
+                          </div>
+                        </div>
+
+                        {vuln.snippet && (
+                          <div className="bg-bg/90 border border-border/80 rounded-lg p-3 font-mono text-xs overflow-x-auto text-[#e8e8f4]">
+                            <span className="text-muted mr-3 select-none">{vuln.line} |</span>
+                            <code>{vuln.snippet}</code>
+                          </div>
+                        )}
+
+                        <p className="text-sm text-muted leading-relaxed">
+                          {vuln.description}
+                        </p>
+
+                        {vuln.remediation && (
+                          <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-lg p-3 text-xs flex items-start gap-2 text-emerald-300">
+                            <span className="font-bold text-emerald-400 shrink-0">Remediation:</span>
+                            <span>{vuln.remediation}</span>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="card py-16 text-center space-y-3 flex flex-col items-center">
+                  <ShieldCheck size={48} className="text-emerald-400" />
+                  <h3 className="text-lg font-bold text-white">No Vulnerabilities Found!</h3>
+                  <p className="text-sm text-muted max-w-md">
+                    {severityFilter === 'all'
+                      ? 'No security vulnerabilities, secret leaks, or insecure dependencies were detected in this repository.'
+                      : `No ${severityFilter} severity vulnerabilities were found.`}
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* File Tree Tab */}
           {activeTab === 'File Tree' && (
             <div className="card h-[70vh] overflow-hidden flex flex-col">
@@ -133,20 +307,21 @@ export default function ResultClient({ initialData }: { initialData: any }) {
           {/* Cleanup Tab */}
           {activeTab === 'Cleanup' && (
             <div className="card">
-              <div className="flex justify-between items-center mb-6">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
                 <div>
-                  <h2 className="text-xl font-bold font-display flex items-center gap-2"><FileWarning className="text-danger" size={24}/> Unused & Temp Files</h2>
-                  <p className="text-muted text-sm mt-1">These files appear to be unused or safely deletable.</p>
+                  <h2 className="text-xl font-bold font-display flex items-center gap-2"><FileWarning className="text-danger" size={24}/> Unused Files Cleanup</h2>
+                  <p className="text-muted text-sm mt-1">Detected {data.unusedFiles?.length || 0} orphaned or temporary files safe to delete.</p>
                 </div>
                 <button onClick={handleDownloadCleanup} className="btn-primary" disabled={!data.unusedFiles?.length}>
-                  <Download size={16} /> Download Script
+                  <Download size={16} /> Download .sh Script
                 </button>
               </div>
-              {data.unusedFiles?.length ? (
-                <div className="overflow-x-auto">
+
+              {data.unusedFiles && data.unusedFiles.length > 0 ? (
+                <div className="overflow-x-auto max-h-[60vh] overflow-y-auto custom-scrollbar border border-border rounded-xl">
                   <table className="w-full text-left border-collapse">
                     <thead>
-                      <tr className="border-b border-border">
+                      <tr className="border-b border-border bg-surface2 text-xs">
                         <th className="py-3 px-4 label font-semibold text-[#e8e8f4]">File Path</th>
                         <th className="py-3 px-4 label font-semibold text-[#e8e8f4]">Size (Bytes)</th>
                         <th className="py-3 px-4 label font-semibold text-[#e8e8f4]">Reason</th>
@@ -289,11 +464,13 @@ export default function ResultClient({ initialData }: { initialData: any }) {
                   <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-2 custom-scrollbar">
                     {data.issues.map((issue: any) => (
                       <div key={issue.id} className={`p-4 rounded-xl bg-surface border ${
+                        issue.severity === 'critical' ? 'border-red-600/50 bg-red-500/5' :
                         issue.severity === 'high' ? 'border-red-500/30' :
                         issue.severity === 'medium' ? 'border-amber-500/30' : 'border-emerald-500/30'
                       }`}>
                         <div className="flex items-center gap-2 mb-1.5">
                           <AlertTriangle size={16} className={`${
+                            issue.severity === 'critical' ? 'text-red-600' :
                             issue.severity === 'high' ? 'text-red-500' :
                             issue.severity === 'medium' ? 'text-amber-500' : 'text-emerald-500'
                           }`} />
@@ -301,6 +478,11 @@ export default function ResultClient({ initialData }: { initialData: any }) {
                           <span className="ml-auto tag-purple">{issue.category}</span>
                         </div>
                         <p className="text-xs text-muted leading-relaxed pl-6">{issue.description}</p>
+                        {issue.remediation && (
+                          <p className="text-xs text-emerald-400/90 leading-relaxed pl-6 mt-1.5">
+                            <span className="font-bold">Fix: </span>{issue.remediation}
+                          </p>
+                        )}
                       </div>
                     ))}
                   </div>

@@ -32,6 +32,7 @@ export async function GET(
     dependencies: a.dependencies,
     duplicates: a.duplicates,
     issues: a.issues,
+    vulnerabilities: a.vulnerabilities || [],
     healthScore: a.healthScore,
     organizerSuggestion: a.organizerSuggestion,
     aiSummary: a.aiSummary,

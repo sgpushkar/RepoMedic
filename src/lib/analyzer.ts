@@ -9,6 +9,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { Analysis } from './models/Analysis';
 import { Job } from './models/Job';
 import dbConnect from './db';
+import { scanVulnerabilities } from './vulnerabilityScanner';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 
@@ -405,22 +406,49 @@ function detectDuplicates(files: any[]) {
 }
 
 // -- Health Score ----------------------------------------------
-function computeHealthScore(stats: any, deps: any, duplicates: any[], issues: any[]) {
+function computeHealthScore(stats: any, deps: any, duplicates: any[], issues: any[], securityScore: number = 100) {
   const totalFiles    = Math.max(stats.totalFiles, 1)
   const fileClean     = Math.max(0, 100 - Math.round((stats.unusedFiles / totalFiles) * 200))
   const dependencies  = deps.unused.length === 0 ? 100 : Math.max(0, 100 - deps.unused.length * 10)
   const dupeScore     = Math.max(0, 100 - duplicates.length * 6)
   const documentation = Math.max(0, 100 - issues.filter(i => i.category === 'docs').length * 25)
   const structure     = Math.max(0, 100 - issues.filter(i => i.category === 'structure').length * 15)
-  const total = Math.round(fileClean*0.25 + dependencies*0.25 + dupeScore*0.20 + structure*0.15 + documentation*0.15)
-  return { total, breakdown: { fileClean, dependencies, duplicates: dupeScore, structure, documentation } }
+  const security      = Math.max(0, Math.min(100, Math.round(securityScore)))
+
+  const total = Math.round(
+    fileClean * 0.20 +
+    dependencies * 0.20 +
+    dupeScore * 0.15 +
+    security * 0.25 +
+    structure * 0.10 +
+    documentation * 0.10
+  )
+  return { total, breakdown: { fileClean, dependencies, duplicates: dupeScore, security, structure, documentation } }
 }
 
 // -- Issues Builder --------------------------------------------
-function buildIssues(repoPath: string, unusedFiles: any[], deps: any, duplicates: any[]) {
+function buildIssues(repoPath: string, unusedFiles: any[], deps: any, duplicates: any[], vulnerabilities: any[] = []) {
   const issues = []
   let n = 0
   const id = () => `issue_${++n}`
+
+  // Merge security vulnerabilities into issues list
+  for (const v of vulnerabilities) {
+    issues.push({
+      id: id(),
+      vulnId: v.id,
+      severity: v.severity,
+      category: 'security',
+      cwe: v.cwe,
+      title: v.title,
+      file: v.file,
+      line: v.line,
+      snippet: v.snippet,
+      description: v.description,
+      remediation: v.remediation,
+      fixable: v.fixable,
+    })
+  }
 
   if (unusedFiles.length > 0)
     issues.push({ id:id(), severity:'high', category:'unused',
@@ -567,7 +595,7 @@ function serialize(a) {
     repoFullName: a.repoFullName, branch: a.branch, analyzedAt: a.analyzedAt,
     duration: a.duration, stats: a.stats, languages: a.languages, fileTree: a.fileTree,
     unusedFiles: a.unusedFiles, dependencies: a.dependencies, duplicates: a.duplicates,
-    issues: a.issues, healthScore: a.healthScore, organizerSuggestion: a.organizerSuggestion,
+    issues: a.issues, vulnerabilities: a.vulnerabilities || [], healthScore: a.healthScore, organizerSuggestion: a.organizerSuggestion,
     aiSummary: a.aiSummary, suggestions: a.suggestions,
   }
 }
@@ -601,24 +629,29 @@ export async function runPipeline(jobId: string, owner: string, repo: string, br
     const { duplicates, duplicateFiles } = detectDuplicates(files)
     console.log(`[Dupes] ${duplicates.length} blocks`)
 
-    step('Building issue list', 72)
-    const issues = buildIssues(repoPath, unusedFiles, dependencies, duplicates)
+    step('Auditing security vulnerabilities', 70)
+    const securityScan = scanVulnerabilities(repoPath, files, dependencies)
+    console.log(`[Security] ${securityScan.vulnerabilities.length} vulnerabilities detected (score: ${securityScan.securityScore})`)
 
-    step('Calculating health score', 80)
+    step('Building issue list', 78)
+    const issues = buildIssues(repoPath, unusedFiles, dependencies, duplicates, securityScan.vulnerabilities)
+
+    step('Calculating health score', 84)
     const stats = {
       totalFiles:      files.length,
       totalLines:      files.reduce((a, f) => a + f.lines, 0),
       unusedFiles:     unusedFiles.length,
       duplicateBlocks: duplicates.length,
+      vulnerabilities: securityScan.vulnerabilities.length,
       sizeKB:          cloneService.getSize(repoPath),
     }
-    const healthScore = computeHealthScore(stats, dependencies, duplicates, issues)
+    const healthScore = computeHealthScore(stats, dependencies, duplicates, issues, securityScan.securityScore)
 
-    step('Building file tree', 86)
+    step('Building file tree', 88)
     const unusedSet = new Set(unusedFiles.map(f => f.path))
     const fileTree  = buildTree(repoPath, unusedSet, duplicateFiles)
 
-    step('Generating organizer plan', 90)
+    step('Generating organizer plan', 92)
     const organizerSuggestion = buildOrganizerSuggestion(languages, unusedFiles)
 
     step('Saving results', 95)
@@ -628,7 +661,7 @@ export async function runPipeline(jobId: string, owner: string, repo: string, br
     const saved = await Analysis.create({
       userId: user._id, repoId, repoName: repo, repoFullName: `${owner}/${repo}`,
       branch, analyzedAt: new Date(), duration, stats, languages, fileTree,
-      unusedFiles, dependencies, duplicates, issues, healthScore,
+      unusedFiles, dependencies, duplicates, issues, vulnerabilities: securityScan.vulnerabilities, healthScore,
       organizerSuggestion, aiSummary: null, suggestions: [],
     })
 

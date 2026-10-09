@@ -84,14 +84,15 @@ export function ScoreBreakdown({ breakdown = {} }: { breakdown: any }) {
     { name:'File Clean',   value: breakdown.fileClean    || 0, fill:'#00ff9d' },
     { name:'Deps',         value: breakdown.dependencies || 0, fill:'#7c3aed' },
     { name:'No Dupes',     value: breakdown.duplicates   || 0, fill:'#f59e0b' },
+    { name:'Security',     value: breakdown.security !== undefined ? breakdown.security : 100, fill:'#ef4444' },
     { name:'Structure',    value: breakdown.structure    || 0, fill:'#3b82f6' },
     { name:'Docs',         value: breakdown.documentation|| 0, fill:'#ec4899' },
   ]
   return (
     <ResponsiveContainer width="100%" height={200}>
-      <BarChart data={data} barSize={28}>
+      <BarChart data={data} barSize={24}>
         <CartesianGrid strokeDasharray="3 3" stroke="#252535" vertical={false} />
-        <XAxis dataKey="name" tick={{ fontFamily:'Space Mono', fontSize:10, fill:'#6b6b88' }} axisLine={false} tickLine={false} />
+        <XAxis dataKey="name" tick={{ fontFamily:'Space Mono', fontSize:9, fill:'#6b6b88' }} axisLine={false} tickLine={false} />
         <YAxis domain={[0,100]} tick={{ fontFamily:'Space Mono', fontSize:10, fill:'#6b6b88' }} axisLine={false} tickLine={false} width={28} />
         <Tooltip cursor={{ fill:'rgba(255,255,255,0.03)' }}
           contentStyle={{ background:'#16162a', border:'1px solid #252535', borderRadius:8, fontFamily:'Space Mono', fontSize:12 }} />
@@ -104,11 +105,13 @@ export function ScoreBreakdown({ breakdown = {} }: { breakdown: any }) {
 }
 
 export function IssuesSummary({ issues = [] }: { issues: any[] }) {
-  const high = issues.filter(i => i.severity === 'high').length
-  const med  = issues.filter(i => i.severity === 'medium').length
-  const low  = issues.filter(i => i.severity === 'low').length
+  const critical = issues.filter(i => i.severity === 'critical').length
+  const high     = issues.filter(i => i.severity === 'high').length
+  const med      = issues.filter(i => i.severity === 'medium').length
+  const low      = issues.filter(i => i.severity === 'low').length
   const data = [
-    { name:'High', value:high, fill:'#ef4444' },
+    { name:'Critical', value:critical, fill:'#dc2626' },
+    { name:'High', value:high, fill:'#f97316' },
     { name:'Medium', value:med, fill:'#f59e0b' },
     { name:'Low', value:low, fill:'#00ff9d' },
   ].filter(d => d.value > 0)

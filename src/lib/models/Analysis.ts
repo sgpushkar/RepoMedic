@@ -21,6 +21,7 @@ export interface IAnalysis {
   dependencies: any;
   duplicates: any[];
   issues: any[];
+  vulnerabilities: any[];
   healthScore: any;
   organizerSuggestion: any;
   aiSummary?: string | null;
@@ -51,6 +52,7 @@ export class AnalysisRecord implements IAnalysis {
   dependencies: any;
   duplicates: any[];
   issues: any[];
+  vulnerabilities: any[];
   healthScore: any;
   organizerSuggestion: any;
   aiSummary: string | null;
@@ -79,6 +81,7 @@ export class AnalysisRecord implements IAnalysis {
     this.dependencies = typeof row.dependencies === 'string' ? JSON.parse(row.dependencies) : (row.dependencies || {});
     this.duplicates = typeof row.duplicates === 'string' ? JSON.parse(row.duplicates) : (row.duplicates || []);
     this.issues = typeof row.issues === 'string' ? JSON.parse(row.issues) : (row.issues || []);
+    this.vulnerabilities = typeof row.vulnerabilities === 'string' ? JSON.parse(row.vulnerabilities) : (row.vulnerabilities || []);
     this.healthScore = typeof row.health_score === 'string' ? JSON.parse(row.health_score) : (row.health_score || {});
     this.organizerSuggestion = typeof row.organizer_suggestion === 'string' ? JSON.parse(row.organizer_suggestion) : row.organizer_suggestion;
     this.aiSummary = row.ai_summary || null;
@@ -164,11 +167,11 @@ export const Analysis = {
       `INSERT INTO analyses (
         user_id, repo_id, repo_name, repo_full_name, branch, duration,
         status, job_step, job_progress, job_error, stats, languages,
-        file_tree, unused_files, dependencies, duplicates, issues,
+        file_tree, unused_files, dependencies, duplicates, issues, vulnerabilities,
         health_score, organizer_suggestion, ai_summary, suggestions
       ) VALUES (
         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-        $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21
+        $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22
       ) RETURNING *`,
       [
         data.userId,
@@ -188,6 +191,7 @@ export const Analysis = {
         JSON.stringify(data.dependencies || {}),
         JSON.stringify(data.duplicates || []),
         JSON.stringify(data.issues || []),
+        JSON.stringify(data.vulnerabilities || []),
         JSON.stringify(data.healthScore || {}),
         data.organizerSuggestion ? JSON.stringify(data.organizerSuggestion) : null,
         data.aiSummary || null,

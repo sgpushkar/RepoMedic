@@ -26,8 +26,9 @@ export async function POST(
   const langList  = (a.languages || []).map((l: any) => `${l.name} (${l.percent}%)`).join(', ');
   const issueList = (a.issues || []).map((i: any) => `[${i.severity.toUpperCase()}] ${i.title}`).join('\n');
   const unusedList = (a.unusedFiles || []).slice(0, 5).map((f: any) => f.name).join(', ');
+  const vulnList = (a.vulnerabilities || []).slice(0, 8).map((v: any) => `[${v.severity.toUpperCase()}] ${v.title} (${v.file}:${v.line}) - ${v.description}`).join('\n');
 
-  const prompt = `You are a senior software engineer doing a code review.
+  const prompt = `You are a senior software engineer and security auditor doing a code review.
 
 Repository: ${a.repoFullName}
 Branch: ${a.branch}
@@ -36,6 +37,8 @@ Total Files: ${a.stats?.totalFiles} | Lines: ${a.stats?.totalLines} | Size: ${a.
 Health Score: ${a.healthScore?.total}/100
 
 Analysis:
+- Security Vulnerabilities (${(a.vulnerabilities || []).length}):
+${vulnList || 'No security vulnerabilities detected'}
 - Unused Files (${a.stats?.unusedFiles}): ${unusedList || 'none'}
 - Duplicate Blocks: ${(a.duplicates || []).length}
 - Dependency Manager: ${a.dependencies?.manager}
