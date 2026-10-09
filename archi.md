@@ -1,6 +1,6 @@
 # RepoMedic System Architecture
 
-RepoMedic is an AI-powered code quality and repository health analysis platform. It combines static AST/regex scanning, dependency auditing, duplicate code detection, and LLM-driven architectural reviews (OpenAI GPT-4o) on cloned GitHub repositories, backed by **Supabase PostgreSQL** and **NextAuth**.
+RepoMedic is an AI-powered code quality, security vulnerability, and repository health analysis platform. It combines static AST/regex scanning, SAST vulnerability auditing, dependency analysis, duplicate code detection, and LLM-driven architectural reviews (OpenAI GPT-4o) on cloned GitHub repositories, backed by **Supabase PostgreSQL** and **NextAuth**.
 
 ---
 
@@ -8,28 +8,34 @@ RepoMedic is an AI-powered code quality and repository health analysis platform.
 
 ```mermaid
 graph TD
-    Client["Client (Browser)"] <--> |HTTPS / Next.js SSR & API| NextApp["Next.js 16 App Server"]
+    Client["Client Browser (Next.js 16 + React 19)"] <--> |HTTPS / SSR & App Router APIs| NextApp["Next.js Server & Route Handlers"]
     
-    subgraph "External Integrations"
-        GitHub["GitHub OAuth & API"]
+    subgraph "External Cloud Services"
+        GitHub["GitHub OAuth & Git Blobs API"]
         OpenAI["OpenAI API (GPT-4o)"]
-        Supabase["Supabase PostgreSQL (Pooler:5432)"]
+        Supabase["Supabase PostgreSQL (Pooler: 5432)"]
     end
     
-    subgraph "Local Execution Engine"
-        GitEngine["Simple-Git Clone Engine"]
-        StaticScanner["Static Analyzer (AST / Heuristics)"]
-        FileTreeGen["File Tree & Duplicate Scanner"]
-        DiskStore["Temporary Storage (temp_repos/)"]
+    subgraph "Analysis Engine Pipeline (src/lib/analyzer.ts)"
+        GitEngine["Clone Engine (Memory Buffer / Ephemeral)"]
+        FileTreeGen["File Tree & Language Detector"]
+        UnusedScanner["Dead Code & Unused File Scanner"]
+        DepAuditor["Dependency Hygiene Auditor"]
+        DupeDetector["Code Duplication Block Scanner"]
+        VulnScanner["SAST Vulnerability & Secret Leak Scanner"]
+        ScoreEngine["Multi-Dimensional Health Score Engine"]
     end
 
-    NextApp <--> |OAuth / Clone Repos| GitHub
+    NextApp <--> |OAuth Session & Tree Clones| GitHub
     NextApp <--> |Code Review Prompt| OpenAI
-    NextApp <--> |Pooled SQL (pg)| Supabase
+    NextApp <--> |Pooled SQL (pg Pool)| Supabase
     NextApp --> GitEngine
-    GitEngine --> DiskStore
-    DiskStore --> StaticScanner
-    DiskStore --> FileTreeGen
+    GitEngine --> FileTreeGen
+    FileTreeGen --> UnusedScanner
+    UnusedScanner --> DepAuditor
+    DepAuditor --> DupeDetector
+    DupeDetector --> VulnScanner
+    VulnScanner --> ScoreEngine
 ```
 
 ---
@@ -37,22 +43,23 @@ graph TD
 ## 2. Core Components
 
 ### 2.1. Presentation Layer (Next.js 16 App Router & React 19)
-- **Landing Page ([src/app/page.tsx](file:///c:/Users/Pushkar%20Mhatre/Desktop/Work/repomedic-ai/src/app/page.tsx))**: Authentication gate and feature preview.
+- **Landing Page ([src/app/page.tsx](file:///c:/Users/Pushkar%20Mhatre/Desktop/Work/repomedic-ai/src/app/page.tsx))**: Authentication gate, platform value proposition, and GitHub sign-in trigger.
 - **Dashboard ([src/app/dashboard/page.tsx](file:///c:/Users/Pushkar%20Mhatre/Desktop/Work/repomedic-ai/src/app/dashboard/page.tsx))**:
-  - Fetches the user's GitHub repositories using their OAuth access token.
-  - Allows triggering new analyses.
-  - Monitors background analysis jobs with an active polling mechanism (`/api/analyze/job/[jobId]`).
+  - Fetches the user's GitHub repositories with their OAuth access token.
+  - Triggers asynchronous repository audits.
+  - Monitors background jobs with active status polling (`/api/analyze/job/[jobId]`).
 - **Analysis View ([src/app/dashboard/analysis/[id]/page.tsx](file:///c:/Users/Pushkar%20Mhatre/Desktop/Work/repomedic-ai/src/app/dashboard/analysis/%5Bid%5D/page.tsx))**:
-  - Server-rendered data hydration from Supabase.
+  - Server-side data fetching with type-safe hydration.
   - [ResultClient.tsx](file:///c:/Users/Pushkar%20Mhatre/Desktop/Work/repomedic-ai/src/app/dashboard/analysis/%5Bid%5D/ResultClient.tsx): Interactive multi-tab breakdown:
-    - **Overview**: Health score dials, language distribution, and metric highlights.
-    - **File Tree**: Visual file structure with unused/duplicate indicators.
-    - **Cleanup**: Downloadable shell script (`cleanup_<repo>.sh`) to delete orphaned files.
-    - **Dependencies**: Used vs. unused dependency audit.
-    - **Duplicates**: Code block duplication detection with file references.
-    - **Organizer**: Proposed repository refactoring structure.
-    - **Issues**: Categorized severity breakdown (high, medium, low).
-- **History View ([src/app/dashboard/history/page.tsx](file:///c:/Users/Pushkar%20Mhatre/Desktop/Work/repomedic-ai/src/app/dashboard/history/page.tsx))**: Timeline of past audits with health scores and deletion capabilities.
+    - **Overview**: Overall health score ring, 6-dimension breakdown chart, language distribution, and quick metric cards (including Vulnerabilities).
+    - **Security**: Comprehensive SAST audit with severity filters (`Critical`, `High`, `Medium`, `Low`), masked code snippets, CWE badges, and remediation recommendations.
+    - **File Tree**: Visual directory hierarchy with indicators for clean, unused, and duplicate files.
+    - **Cleanup**: Downloadable shell script (`cleanup_<repo>.sh`) to delete orphaned files automatically.
+    - **Dependencies**: Used vs. unused dependency audit with version metadata.
+    - **Duplicates**: Code block duplication detection with file references and match IDs.
+    - **Organizer**: Proposed refactored folder structure tailored to the primary language.
+    - **Issues**: Categorized severity breakdown and detailed diagnostic log.
+- **History View ([src/app/dashboard/history/page.tsx](file:///c:/Users/Pushkar%20Mhatre/Desktop/Work/repomedic-ai/src/app/dashboard/history/page.tsx))**: Chronological history of past audits with health scores and deletion controls.
 
 ---
 
@@ -60,16 +67,16 @@ graph TD
 
 | Endpoint | Method | Description |
 |---|---|---|
-| `/api/auth/[...nextauth]` | `GET`, `POST` | NextAuth GitHub OAuth handler |
-| `/api/analyze` | `POST` | Queues repository analysis and dispatches background pipeline |
-| `/api/analyze/job/[jobId]` | `GET` | Polling endpoint for job step (`step`) and percentage (`progress`) |
-| `/api/analyze/[id]` | `GET`, `DELETE` | Retrieves analysis data or removes past report |
-| `/api/analyze/[id]/ai` | `POST` | Triggers OpenAI GPT-4o contextual code audit |
+| `/api/auth/[...nextauth]` | `GET`, `POST` | NextAuth GitHub OAuth handler and session token lifecycle |
+| `/api/analyze` | `POST` | Queues repository analysis job and launches background pipeline via Next.js `after()` |
+| `/api/analyze/job/[jobId]` | `GET` | Polling endpoint for job step (`step`) and progress percentage (`progress`) |
+| `/api/analyze/[id]` | `GET`, `DELETE` | Retrieves complete analysis report or permanently deletes a report |
+| `/api/analyze/[id]/ai` | `POST` | Dispatches on-demand OpenAI GPT-4o contextual architectural review |
 | `/api/analyze/history` | `GET` | Lists previous analyses for the authenticated user |
 
 ---
 
-### 2.3. Analysis Engine ([src/lib/analyzer.ts](file:///c:/Users/Pushkar%20Mhatre/Desktop/Work/repomedic-ai/src/lib/analyzer.ts))
+### 2.3. Analysis Engine Pipeline ([src/lib/analyzer.ts](file:///c:/Users/Pushkar%20Mhatre/Desktop/Work/repomedic-ai/src/lib/analyzer.ts))
 
 The analysis pipeline processes repositories in sequential, non-blocking steps:
 
@@ -80,7 +87,7 @@ sequenceDiagram
     participant API as /api/analyze
     participant Queue as Job Queue (Supabase)
     participant Worker as Pipeline Worker
-    participant GitHub as GitHub Git
+    participant GitHub as GitHub Git API
     participant AI as OpenAI (GPT-4o)
 
     User->>API: POST /api/analyze { owner, repo, branch }
@@ -93,23 +100,25 @@ sequenceDiagram
         Queue-->>User: { status, step, progress }
     end
 
-    Worker->>GitHub: Clone repo to temp_repos/:id
-    Worker->>Worker: 1. Scan file structure & filter binaries
-    Worker->>Worker: 2. Detect languages & distribution
-    Worker->>Worker: 3. Detect unreferenced / unused files
-    Worker->>Worker: 4. Audit dependencies (manifest vs imports)
-    Worker->>Worker: 5. Detect duplicate code blocks (hashing)
-    Worker->>Worker: 6. Calculate weighted health score
-    Worker->>Worker: 7. Build interactive file tree & organizer plan
-    Worker->>Queue: Analysis.create + Job.update(status: 'done', analysisId)
+    Worker->>GitHub: Clone repo tree & blobs to temp_repos/:id
+    Worker->>Worker: 1. Scan file structure & filter binaries (18%)
+    Worker->>Worker: 2. Detect programming languages & distribution (28%)
+    Worker->>Worker: 3. Detect unreferenced / unused files (38%)
+    Worker->>Worker: 4. Audit dependencies (manifest vs imports) (50%)
+    Worker->>Worker: 5. Detect duplicate code blocks via rolling window hashing (62%)
+    Worker->>Worker: 6. Audit security vulnerabilities & leaked credentials (SAST) (70%)
+    Worker->>Worker: 7. Build unified issue list (78%)
+    Worker->>Worker: 8. Calculate 6-dimension weighted health score (84%)
+    Worker->>Worker: 9. Build interactive file tree & organizer plan (92%)
+    Worker->>Queue: Analysis.create + Job.update(status: 'done', analysisId) (95%-100%)
     Worker->>Worker: Cleanup temp_repos directory (async delayed)
     
     User->>API: GET /dashboard/analysis/:analysisId
-    API-->>User: Render full report
+    API-->>User: Render full report with Security tab
 
-    opt On-Demand AI Summary
+    opt On-Demand AI Code Review
         User->>API: POST /api/analyze/:id/ai
-        API->>AI: Generate architectural assessment & action plan
+        API->>AI: Generate architectural assessment & action plan with security findings
         AI-->>API: Summary & recommendations
         API-->>User: Updated AI Insights
     end
@@ -231,14 +240,59 @@ The overall health score ($0 - 100$) is dynamically computed across six key dime
 | **Dependency Hygiene** | 20% | Percentage of declared dependencies actively utilized |
 | **Duplicate Code** | 15% | Ratio of duplicate code blocks vs total file lines |
 | **Architecture & Structure** | 10% | Presence of `.gitignore`, testing directory, and standard layout |
-| **Documentation** | 10% | Presence and quality of README and docs |
+| **Documentation** | 10% | Presence and quality of README and documentation coverage |
 
 ---
 
-## 6. Security & Isolation
+## 6. Security, Isolation & Production Deployments
 
 - **Token Security**: GitHub personal access tokens are stored in the database and utilized solely for user-authorized Git cloning and repo listing.
 - **Ephemeral Clones**: Cloned repositories are isolated in `temp_repos/<uuid>` and deleted with `rimraf` after scanning completes.
 - **Database Safety**: All SQL operations use parameterized queries (`$1, $2, ...`) against Supabase to eliminate SQL injection risks.
 - **Environment Isolation**: Production credentials and secrets are managed via environment variables (`DATABASE_URL`, `NEXTAUTH_SECRET`, `GITHUB_CLIENT_SECRET`, `OPENAI_API_KEY`).
+- **Connection Pooler**: Connects to Supabase via IPv4-compatible connection poolers (`aws-0-<region>.pooler.supabase.com:5432`) to ensure high availability across serverless environments.
 
+---
+
+## 7. Project Structure
+
+```
+repomedic-ai/
+├── archi.md                  # Comprehensive system architecture documentation
+├── README.md                 # Project overview and setup instructions
+├── package.json              # Project dependencies and npm scripts
+├── scripts/
+│   └── migrate.js            # Supabase schema migration runner
+└── src/
+    ├── app/
+    │   ├── api/
+    │   │   ├── analyze/
+    │   │   │   ├── [id]/
+    │   │   │   │   ├── ai/   # GPT-4o on-demand contextual audit
+    │   │   │   │   └── route.ts # Get & delete analysis reports
+    │   │   │   ├── history/  # User analysis history endpoint
+    │   │   │   ├── job/[jobId]/ # Asynchronous job polling endpoint
+    │   │   │   └── route.ts  # Queue analysis job
+    │   │   └── auth/         # NextAuth route handler ([...nextauth])
+    │   ├── dashboard/
+    │   │   ├── analysis/[id]/# Report view with interactive tabs
+    │   │   ├── history/      # Historical audits list
+    │   │   └── page.tsx      # Main dashboard & repo selector
+    │   ├── layout.tsx        # App root layout & providers
+    │   └── page.tsx          # Public landing page
+    ├── components/
+    │   ├── FileTree.tsx      # Interactive hierarchical file tree
+    │   ├── Navbar.tsx        # Navigation and session controls
+    │   ├── RepoCard.tsx      # Repository selection card
+    │   └── ScoreChart.tsx    # Health ring, breakdown bars, and language pie
+    └── lib/
+        ├── analyzer.ts       # Core analysis pipeline engine
+        ├── auth.ts           # NextAuth GitHub OAuth configuration
+        ├── db.ts             # Supabase pooled PostgreSQL client
+        ├── schema.sql        # Database table definitions & indexes
+        ├── vulnerabilityScanner.ts # SAST & secret audit engine
+        └── models/
+            ├── Analysis.ts   # Analysis model with fluent query builder
+            ├── Job.ts        # Job model for queue progress
+            └── User.ts       # User model for OAuth profiles
+```
